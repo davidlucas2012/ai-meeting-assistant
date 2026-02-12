@@ -316,6 +316,20 @@ Users can customize notification behavior in Android Settings > Apps > AI Meetin
   .env.example             - Backend environment template
 ```
 
+## Lifecycle & Resilience
+
+The app implements several strategies to ensure reliable operation and automatic state synchronization:
+
+**AppState Auto-Refresh**: When the app transitions from background to active, the meetings list automatically refreshes to display updated meeting statuses. This ensures users see the latest processing results without manual intervention. Includes a 500ms debounce to prevent duplicate refreshes.
+
+**Status Polling**: On the meeting detail screen, if a meeting status is not "ready", the app polls the database every 5 seconds to check for updates. Polling automatically stops once the meeting reaches "ready" status or when the screen loses focus. This provides near-real-time status updates without requiring push notifications for intermediate states.
+
+**Upload Locking**: An in-memory Set tracks active uploads by meeting ID to prevent duplicate submission from rapid button taps. The lock is released in a finally block to ensure cleanup even on error.
+
+**Recording State Machine**: The record screen uses a strict state machine (`idle | recording | uploading | processing`) to prevent impossible state transitions. The record button is disabled during upload and processing states. Recording service guards against starting while already recording or stopping when not recording.
+
+**Graceful Error Display**: Inline error messages provide user feedback without blocking the UI. Errors clear automatically on the next successful action. The `InlineError` component conditionally renders based on message presence.
+
 ## Architecture Decisions
 
 **Framework**: Expo SDK 54 with Expo Router for file-based routing and deep linking support.

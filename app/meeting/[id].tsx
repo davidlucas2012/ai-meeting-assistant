@@ -1,69 +1,81 @@
 import { StyleSheet, Text, View, ScrollView, ActivityIndicator } from 'react-native';
-import { useLocalSearchParams, Stack } from 'expo-router';
-import { useState, useEffect } from 'react';
+import { useLocalSearchParams, Stack, useFocusEffect } from 'expo-router';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import * as MeetingService from '@/services/meetingService';
 import type { Meeting } from '@/services/meetingService';
+import StatusBadge from '@/components/StatusBadge';
+import InlineError from '@/components/InlineError';
 
 export default function MeetingDetailScreen() {
   const { id } = useLocalSearchParams();
   const [meeting, setMeeting] = useState<Meeting | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  useEffect(() => {
-    loadMeeting();
-  }, [id]);
-
-  const loadMeeting = async () => {
+  const loadMeeting = useCallback(async () => {
     try {
       const data = await MeetingService.getMeeting(id as string);
       if (!data) {
         setNotFound(true);
       } else {
         setMeeting(data);
+        setErrorMessage(null);
       }
     } catch (error) {
       console.error('Failed to load meeting:', error);
-      setNotFound(true);
+      const message = error instanceof Error ? error.message : 'Failed to load meeting';
+      setErrorMessage(message);
     } finally {
       setLoading(false);
     }
-  };
+  }, [id]);
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'ready':
-        return '#4CAF50'; // Green
-      case 'processing':
-        return '#2196F3'; // Blue
-      case 'upload_failed':
-      case 'queued_failed':
-        return '#FF3B30'; // Red
-      case 'uploading':
-        return '#FF9800'; // Orange
-      default:
-        return '#999'; // Gray
-    }
-  };
+  useEffect(() => {
+    loadMeeting();
+  }, [loadMeeting]);
 
-  const getStatusText = (status: string) => {
-    switch (status) {
-      case 'ready':
-        return 'Ready';
-      case 'processing':
-        return 'Processing';
-      case 'upload_failed':
-        return 'Upload Failed';
-      case 'queued_failed':
-        return 'Processing Failed';
-      case 'uploading':
-        return 'Uploading';
-      case 'recorded':
-        return 'Recorded';
-      default:
-        return status.charAt(0).toUpperCase() + status.slice(1);
+  // Poll for status updates when screen is focused and status is not ready
+  useFocusEffect(
+    useCallback(() => {
+      // Start polling if meeting is not ready
+      const startPolling = () => {
+        if (meeting && meeting.status !== 'ready') {
+          console.log('Starting polling for meeting status...');
+          pollingIntervalRef.current = setInterval(() => {
+            loadMeeting();
+          }, 5000); // Poll every 5 seconds
+        }
+      };
+
+      // Stop polling
+      const stopPolling = () => {
+        if (pollingIntervalRef.current) {
+          console.log('Stopping polling for meeting status');
+          clearInterval(pollingIntervalRef.current);
+          pollingIntervalRef.current = null;
+        }
+      };
+
+      // Start polling if needed
+      startPolling();
+
+      // Cleanup on unmount or when screen loses focus
+      return () => {
+        stopPolling();
+      };
+    }, [meeting, loadMeeting])
+  );
+
+  // Stop polling once meeting is ready
+  useEffect(() => {
+    if (meeting && meeting.status === 'ready' && pollingIntervalRef.current) {
+      console.log('Meeting is ready, stopping polling');
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
     }
-  };
+  }, [meeting]);
 
   if (loading) {
     return (
@@ -93,10 +105,10 @@ export default function MeetingDetailScreen() {
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
         <View style={styles.header}>
           <Text style={styles.date}>{MeetingService.formatDateTime(meeting.created_at)}</Text>
-          <View style={[styles.statusBadge, { backgroundColor: getStatusColor(meeting.status) }]}>
-            <Text style={styles.statusText}>{getStatusText(meeting.status)}</Text>
-          </View>
+          <StatusBadge status={meeting.status} />
         </View>
+
+        <InlineError message={errorMessage} />
 
         {meeting.duration_millis && (
           <Text style={styles.duration}>
@@ -180,17 +192,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#333',
     flex: 1,
-  },
-  statusBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-  },
-  statusText: {
-    fontSize: 11,
-    color: '#fff',
-    fontWeight: '600',
-    textTransform: 'uppercase',
   },
   duration: {
     fontSize: 14,

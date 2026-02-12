@@ -1,19 +1,24 @@
-import { StyleSheet, Text, View, TouchableOpacity, FlatList, ActivityIndicator, RefreshControl } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, FlatList, ActivityIndicator, RefreshControl, AppState } from 'react-native';
+import type { AppStateStatus } from 'react-native';
 import { Link } from 'expo-router';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import * as MeetingService from '@/services/meetingService';
 import type { MeetingListItem } from '@/services/meetingService';
 import { signOut } from '@/lib/supabase';
+import StatusBadge from '@/components/StatusBadge';
 
 export default function MeetingsScreen() {
   const [meetings, setMeetings] = useState<MeetingListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const appState = useRef<AppStateStatus>(AppState.currentState);
+  const lastRefreshTime = useRef<number>(Date.now());
 
   const loadMeetings = useCallback(async () => {
     try {
       const data = await MeetingService.listMeetings();
       setMeetings(data);
+      lastRefreshTime.current = Date.now();
     } catch (error) {
       console.error('Failed to load meetings:', error);
     } finally {
@@ -23,6 +28,26 @@ export default function MeetingsScreen() {
 
   useEffect(() => {
     loadMeetings();
+  }, [loadMeetings]);
+
+  // AppState listener for auto-refresh when app comes to foreground
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      // App transitioned from background to active
+      if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
+        // Debounce: only refresh if it's been more than 500ms since last refresh
+        const timeSinceLastRefresh = Date.now() - lastRefreshTime.current;
+        if (timeSinceLastRefresh > 500) {
+          console.log('App came to foreground, refreshing meetings...');
+          loadMeetings();
+        }
+      }
+      appState.current = nextAppState;
+    });
+
+    return () => {
+      subscription.remove();
+    };
   }, [loadMeetings]);
 
   const handleRefresh = useCallback(async () => {
@@ -39,46 +64,7 @@ export default function MeetingsScreen() {
     }
   };
 
-  const getStatusColor = (status: string): string => {
-    switch (status) {
-      case 'ready':
-        return '#4CAF50'; // Green
-      case 'processing':
-        return '#2196F3'; // Blue
-      case 'upload_failed':
-      case 'queued_failed':
-        return '#FF3B30'; // Red
-      case 'uploading':
-        return '#FF9800'; // Orange
-      case 'recorded':
-      default:
-        return '#999'; // Gray
-    }
-  };
-
-  const getStatusText = (status: string): string => {
-    switch (status) {
-      case 'ready':
-        return 'Ready';
-      case 'processing':
-        return 'Processing';
-      case 'upload_failed':
-        return 'Upload Failed';
-      case 'queued_failed':
-        return 'Processing Failed';
-      case 'uploading':
-        return 'Uploading';
-      case 'recorded':
-        return 'Recorded';
-      default:
-        return status.charAt(0).toUpperCase() + status.slice(1);
-    }
-  };
-
   const renderMeetingItem = ({ item }: { item: MeetingListItem }) => {
-    const statusColor = getStatusColor(item.status);
-    const statusText = getStatusText(item.status);
-
     return (
       <Link href={`/meeting/${item.id}`} asChild>
         <TouchableOpacity style={styles.meetingItem}>
@@ -86,9 +72,7 @@ export default function MeetingsScreen() {
             <Text style={styles.meetingDate}>
               {MeetingService.formatDateTime(item.created_at)}
             </Text>
-            <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
-              <Text style={styles.statusText}>{statusText}</Text>
-            </View>
+            <StatusBadge status={item.status} />
           </View>
           {item.duration_millis && (
             <Text style={styles.meetingDuration}>
@@ -197,17 +181,6 @@ const styles = StyleSheet.create({
   meetingDuration: {
     fontSize: 13,
     color: '#666',
-  },
-  statusBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  statusText: {
-    fontSize: 11,
-    color: '#fff',
-    fontWeight: '600',
-    textTransform: 'uppercase',
   },
   emptyContainer: {
     flex: 1,

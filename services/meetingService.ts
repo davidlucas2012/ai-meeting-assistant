@@ -14,6 +14,11 @@ function generateUUID(): string {
   });
 }
 
+/**
+ * In-memory lock to prevent duplicate upload calls
+ */
+const activeUploads = new Set<string>();
+
 export type MeetingStatus = 'recorded' | 'uploading' | 'upload_failed' | 'processing' | 'ready' | 'queued_failed';
 
 export interface Meeting {
@@ -54,6 +59,17 @@ export async function createMeetingAndUploadAudio(
   localUri: string,
   durationMillis: number
 ): Promise<{ meetingId: string }> {
+  // Generate meeting ID early for locking
+  const meetingId = generateUUID();
+
+  // Check if upload is already in progress for this meeting
+  if (activeUploads.has(meetingId)) {
+    throw new Error('Upload already in progress for this meeting');
+  }
+
+  // Lock this upload
+  activeUploads.add(meetingId);
+
   try {
     console.log('Starting createMeetingAndUploadAudio...');
 
@@ -81,8 +97,7 @@ export async function createMeetingAndUploadAudio(
     const userId = session.user.id;
     console.log('User ID:', userId);
 
-    // 2. Generate meeting ID (client-side for stable storage path)
-    const meetingId = generateUUID();
+    // 2. Use the pre-generated meeting ID for stable storage path
     const audioPath = `${userId}/${meetingId}.m4a`;
 
     console.log('Creating meeting record:', { meetingId, audioPath });
@@ -209,6 +224,9 @@ export async function createMeetingAndUploadAudio(
   } catch (error) {
     console.error('Error in createMeetingAndUploadAudio:', error);
     throw error;
+  } finally {
+    // Always remove from active uploads set
+    activeUploads.delete(meetingId);
   }
 }
 

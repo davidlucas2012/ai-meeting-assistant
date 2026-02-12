@@ -13,6 +13,7 @@ export interface RecordingResult {
 }
 
 let recording: Audio.Recording | null = null;
+let isRecordingRef = false;
 
 /**
  * Request microphone permissions from the user.
@@ -51,10 +52,10 @@ async function configureAudioMode(): Promise<void> {
  */
 export async function startRecording(): Promise<void> {
   try {
-    // Check if already recording
-    if (recording) {
+    // Guard: Prevent starting if already recording
+    if (recording || isRecordingRef) {
       console.warn('Recording already in progress');
-      return;
+      throw new Error('Recording already in progress');
     }
 
     // Request permissions
@@ -102,6 +103,7 @@ export async function startRecording(): Promise<void> {
     );
 
     recording = newRecording;
+    isRecordingRef = true;
 
     // NOTE: On Android, a foreground service notification should be shown here
     // to prevent the OS from killing the recording in the background.
@@ -110,6 +112,7 @@ export async function startRecording(): Promise<void> {
     console.log('Recording started successfully');
   } catch (error) {
     recording = null;
+    isRecordingRef = false;
     console.error('Failed to start recording:', error);
     throw error;
   }
@@ -122,11 +125,12 @@ export async function startRecording(): Promise<void> {
  */
 export async function stopRecording(): Promise<RecordingResult> {
   try {
-    if (!recording) {
+    // Guard: Prevent stopping if not recording
+    if (!recording || !isRecordingRef) {
       throw new Error('No recording in progress');
     }
 
-    // Get status before stopping to capture duration
+    // Get status before stopping to capture stable duration
     const status = await recording.getStatusAsync();
     const durationMillis = status.durationMillis || 0;
 
@@ -145,8 +149,9 @@ export async function stopRecording(): Promise<RecordingResult> {
       throw new Error('Recording URI is null');
     }
 
-    // Clear the recording instance
+    // Clear the recording instance and state
     recording = null;
+    isRecordingRef = false;
 
     // NOTE: Foreground service notification should be dismissed here on Android
 
@@ -154,7 +159,9 @@ export async function stopRecording(): Promise<RecordingResult> {
 
     return { uri, durationMillis };
   } catch (error) {
+    // Ensure cleanup on error
     recording = null;
+    isRecordingRef = false;
     console.error('Failed to stop recording:', error);
     throw error;
   }
@@ -207,8 +214,11 @@ export async function cleanup(): Promise<void> {
     try {
       await recording.stopAndUnloadAsync();
       recording = null;
+      isRecordingRef = false;
     } catch (error) {
       console.error('Error during recording cleanup:', error);
+      recording = null;
+      isRecordingRef = false;
     }
   }
 }

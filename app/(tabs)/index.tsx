@@ -1,14 +1,17 @@
-import { StyleSheet, Text, View, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useState, useRef, useEffect } from 'react';
 import { router } from 'expo-router';
 import * as RecordingService from '@/services/recordingService';
 import * as MeetingService from '@/services/meetingService';
+import InlineError from '@/components/InlineError';
+
+type RecordState = 'idle' | 'recording' | 'uploading' | 'processing';
 
 export default function RecordScreen() {
-  const [isRecording, setIsRecording] = useState(false);
+  const [recordState, setRecordState] = useState<RecordState>('idle');
   const [duration, setDuration] = useState(0);
   const [savedMessage, setSavedMessage] = useState('');
-  const [isUploading, setIsUploading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef<number>(0);
 
@@ -48,32 +51,32 @@ export default function RecordScreen() {
   };
 
   const handleRecordPress = async () => {
+    setErrorMessage(null);
     setSavedMessage('');
 
-    if (!isRecording) {
+    if (recordState === 'idle') {
       // Start recording
       try {
         await RecordingService.startRecording();
-        setIsRecording(true);
+        setRecordState('recording');
         setDuration(0);
         startTimer();
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Failed to start recording';
-        Alert.alert('Recording Error', errorMessage);
+        const message = error instanceof Error ? error.message : 'Failed to start recording';
+        setErrorMessage(message);
         console.error('Failed to start recording:', error);
       }
-    } else {
+    } else if (recordState === 'recording') {
       // Stop recording
       try {
         stopTimer();
         const result = await RecordingService.stopRecording();
-        setIsRecording(false);
         setDuration(0);
 
         console.log('Recording saved:', result);
 
         // Upload to Supabase
-        setIsUploading(true);
+        setRecordState('uploading');
         setSavedMessage('Uploading...');
 
         const { meetingId } = await MeetingService.createMeetingAndUploadAudio(
@@ -81,25 +84,29 @@ export default function RecordScreen() {
           result.durationMillis
         );
 
+        setRecordState('processing');
         setSavedMessage('Upload complete!');
-        setIsUploading(false);
 
         // Clear the message after 2 seconds, then navigate
         setTimeout(() => {
           setSavedMessage('');
+          setRecordState('idle');
           router.push(`/meeting/${meetingId}`);
         }, 2000);
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Failed to stop recording';
-        Alert.alert('Error', errorMessage);
+        const message = error instanceof Error ? error.message : 'Failed to stop recording or upload';
+        setErrorMessage(message);
         console.error('Failed to stop recording or upload:', error);
-        setIsRecording(false);
+        setRecordState('idle');
         setDuration(0);
-        setIsUploading(false);
         setSavedMessage('');
       }
     }
   };
+
+  const isRecording = recordState === 'recording';
+  const isUploading = recordState === 'uploading' || recordState === 'processing';
+  const isDisabled = isUploading;
 
   return (
     <View style={styles.container}>
@@ -120,11 +127,11 @@ export default function RecordScreen() {
         style={[
           styles.recordButton,
           isRecording && styles.recordButtonActive,
-          isUploading && styles.recordButtonDisabled,
+          isDisabled && styles.recordButtonDisabled,
         ]}
         onPress={handleRecordPress}
         activeOpacity={0.8}
-        disabled={isUploading}
+        disabled={isDisabled}
       >
         <View
           style={[
@@ -148,6 +155,8 @@ export default function RecordScreen() {
           <Text style={styles.savedMessage}>{savedMessage}</Text>
         </View>
       )}
+
+      <InlineError message={errorMessage} />
 
       {!isRecording && !isUploading && (
         <View style={styles.infoContainer}>
