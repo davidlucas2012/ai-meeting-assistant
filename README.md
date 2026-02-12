@@ -56,6 +56,28 @@ npx expo prebuild --clean
 
 This regenerates the native `ios/` and `android/` directories with the plugin's configurations applied.
 
+### Recording Layer
+
+The app uses `expo-av` for high-quality audio recording with background support.
+
+**Features:**
+- One-tap recording start/stop
+- Background recording that continues when app is backgrounded or screen is locked
+- Real-time duration counter during recording
+- Automatic permission handling for microphone access
+- High-quality audio encoding (AAC at 44.1kHz, 128kbps)
+
+**Implementation:**
+- Recording service layer (`/services/recordingService.ts`) provides a clean API for recording operations
+- Audio mode configured for background operation with `staysActiveInBackground: true`
+- Records in `.m4a` format for broad compatibility
+- Safe state management using React hooks (useRef, useState, useEffect)
+
+**Android Foreground Service:**
+- On Android, background microphone access requires a foreground service
+- The native configuration is already in place via the config plugin
+- Foreground notification UI will be implemented in a future commit with push notification integration
+
 ### Backend Setup
 
 See [backend/README.md](backend/README.md) for backend setup instructions.
@@ -65,10 +87,11 @@ See [backend/README.md](backend/README.md) for backend setup instructions.
 ```
 /app
   /(tabs)           - Tab navigation
-    index.tsx       - Record screen
+    index.tsx       - Record screen with recording UI
     meetings.tsx    - Meetings list
   /meeting/[id].tsx - Meeting detail view
 /plugins            - Custom Expo config plugins for background audio
+/services           - Recording service layer (expo-av wrapper)
 /backend            - Python FastAPI backend
 ```
 
@@ -76,7 +99,9 @@ See [backend/README.md](backend/README.md) for backend setup instructions.
 
 **Framework**: Expo SDK 54 with Expo Router for file-based routing and deep linking support.
 
-**State Management**: React hooks for now. Will add state management (Zustand/Redux) as recording and data sync complexity grows.
+**Recording**: expo-av provides native audio recording with background support. Audio mode configured for continuous recording even when app is backgrounded or screen locked. Custom config plugin handles all native permissions.
+
+**State Management**: React hooks (useState, useRef, useEffect) for local component state. Will add global state management (Zustand/Redux) as data sync complexity grows.
 
 **Navigation**: Expo Router provides file-based routing and deep link handling out of the box, reducing boilerplate.
 
@@ -86,7 +111,7 @@ See [backend/README.md](backend/README.md) for backend setup instructions.
 
 ## What Would Be Improved With More Time
 
-- Implement actual audio recording with background support
+- Implement foreground notification for Android recording service
 - Integrate Supabase for auth, storage, and database
 - Add Expo Push Notifications
 - Implement real transcription/summarization in backend
