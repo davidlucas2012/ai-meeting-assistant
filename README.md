@@ -33,6 +33,29 @@ npm run android   # Android emulator
 npm run web       # Web browser
 ```
 
+### Background Audio Configuration
+
+This app includes a custom Expo config plugin that enables background audio recording on both iOS and Android.
+
+**What the plugin configures:**
+
+**iOS:**
+- Adds `audio` to `UIBackgroundModes` in Info.plist (allows audio recording while app is backgrounded)
+- Ensures `NSMicrophoneUsageDescription` is set (required for microphone access)
+
+**Android:**
+- Adds `RECORD_AUDIO` permission (microphone access)
+- Adds `FOREGROUND_SERVICE` and `FOREGROUND_SERVICE_MICROPHONE` permissions (Android 14+)
+- Configures a foreground service with microphone type for continuous recording
+
+**Important:** After any changes to the config plugin or app.json, you must run prebuild to apply native changes:
+
+```bash
+npx expo prebuild --clean
+```
+
+This regenerates the native `ios/` and `android/` directories with the plugin's configurations applied.
+
 ### Backend Setup
 
 See [backend/README.md](backend/README.md) for backend setup instructions.
@@ -45,7 +68,7 @@ See [backend/README.md](backend/README.md) for backend setup instructions.
     index.tsx       - Record screen
     meetings.tsx    - Meetings list
   /meeting/[id].tsx - Meeting detail view
-/plugins            - Custom Expo config plugins (TBD)
+/plugins            - Custom Expo config plugins for background audio
 /backend            - Python FastAPI backend
 ```
 
@@ -64,7 +87,6 @@ See [backend/README.md](backend/README.md) for backend setup instructions.
 ## What Would Be Improved With More Time
 
 - Implement actual audio recording with background support
-- Create custom Expo config plugin for native permissions
 - Integrate Supabase for auth, storage, and database
 - Add Expo Push Notifications
 - Implement real transcription/summarization in backend
