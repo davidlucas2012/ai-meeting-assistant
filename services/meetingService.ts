@@ -1,5 +1,7 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { supabase } from '@/lib/supabase';
+import { postJson } from '@/lib/api';
+import { getCurrentPushToken } from './notificationsService';
 
 /**
  * Generate a UUID v4 (works in React Native)
@@ -12,7 +14,7 @@ function generateUUID(): string {
   });
 }
 
-export type MeetingStatus = 'recorded' | 'uploading' | 'upload_failed' | 'processing' | 'ready';
+export type MeetingStatus = 'recorded' | 'uploading' | 'upload_failed' | 'processing' | 'ready' | 'queued_failed';
 
 export interface Meeting {
   id: string;
@@ -142,17 +144,63 @@ export async function createMeetingAndUploadAudio(
       throw new Error(`Failed to upload audio: ${uploadError.message}`);
     }
 
-    console.log('Audio uploaded successfully, updating meeting status...');
+    console.log('Audio uploaded successfully, creating signed URL...');
 
-    // 6. Update meeting status to recorded (upload complete)
-    const { error: updateError } = await supabase
-      .from('meetings')
-      .update({ status: 'recorded' })
-      .eq('id', meetingId);
+    // 6. Create a signed URL for the backend to download the audio
+    const { data: signedUrlData, error: signedUrlError } = await supabase.storage
+      .from('meeting-audio')
+      .createSignedUrl(audioPath, 3600); // 1 hour expiry
 
-    if (updateError) {
-      console.error('Failed to update meeting status:', updateError);
-      throw new Error(`Failed to update meeting status: ${updateError.message}`);
+    if (signedUrlError || !signedUrlData) {
+      console.error('Failed to create signed URL:', signedUrlError);
+      // Update meeting status to upload_failed
+      await supabase
+        .from('meetings')
+        .update({ status: 'upload_failed' })
+        .eq('id', meetingId);
+      throw new Error(`Failed to create signed URL: ${signedUrlError?.message || 'Unknown error'}`);
+    }
+
+    const audioUrl = signedUrlData.signedUrl;
+    console.log('Signed URL created');
+
+    // 7. Get user's push token
+    const pushToken = await getCurrentPushToken();
+    console.log('Push token retrieved:', pushToken ? 'yes' : 'no');
+
+    // 8. Call backend to process the meeting
+    try {
+      console.log('Calling backend to process meeting...');
+
+      // Update meeting status to processing immediately
+      await supabase
+        .from('meetings')
+        .update({ status: 'processing' })
+        .eq('id', meetingId);
+
+      // Fire-and-forget call to backend (don't await to avoid blocking UI)
+      postJson('/process-meeting', {
+        audio_url: audioUrl,
+        meeting_id: meetingId,
+        push_token: pushToken,
+      }).catch((error) => {
+        console.error('Backend processing failed:', error);
+        // Update meeting status to indicate backend failure
+        supabase
+          .from('meetings')
+          .update({ status: 'queued_failed' })
+          .eq('id', meetingId)
+          .then(() => console.log('Meeting status updated to queued_failed'));
+      });
+
+      console.log('Backend processing initiated');
+    } catch (error) {
+      console.error('Failed to initiate backend processing:', error);
+      // Update status to queued_failed
+      await supabase
+        .from('meetings')
+        .update({ status: 'queued_failed' })
+        .eq('id', meetingId);
     }
 
     console.log('Meeting created and uploaded successfully:', meetingId);

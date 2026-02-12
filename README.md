@@ -132,26 +132,188 @@ This allows you to sign up without verifying your email during development.
 
 ### Backend Setup
 
-See [backend/README.md](backend/README.md) for backend setup instructions.
+The backend processes meeting audio files, generates transcripts and summaries, and sends push notifications when processing is complete.
+
+#### 0. Install Python (if not already installed)
+
+**Check if Python is installed:**
+```bash
+python3 --version
+```
+
+If you see a version number (e.g., `Python 3.11.x`), you're good to go. Skip to step 1.
+
+**If Python is not installed:**
+
+**macOS:**
+```bash
+# Using Homebrew (recommended)
+brew install python@3.11
+
+# Verify installation
+python3 --version
+```
+
+If you don't have Homebrew:
+```bash
+# Install Homebrew first
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# Then install Python
+brew install python@3.11
+```
+
+**Windows:**
+1. Download Python from https://www.python.org/downloads/
+2. Run the installer
+3. ✅ Check "Add Python to PATH" during installation
+4. Verify: `python --version` in Command Prompt
+
+**Linux:**
+```bash
+# Ubuntu/Debian
+sudo apt update
+sudo apt install python3.11 python3.11-venv python3-pip
+
+# Fedora
+sudo dnf install python3.11
+
+# Verify
+python3 --version
+```
+
+#### 1. Install Python Dependencies
+
+**Important:** Use `python3` (not `python`) on macOS/Linux.
+
+```bash
+cd backend
+python3 -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+#### 2. Configure Backend Environment
+
+1. Copy `.env.example` to `.env`:
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Add your Supabase credentials:
+   - Go to Supabase Project Settings > API
+   - Copy the **Project URL** as `SUPABASE_URL`
+   - Copy the **service_role key** (NOT the anon key!) as `SUPABASE_SERVICE_ROLE_KEY`
+
+   ⚠️ **Important**: The service role key bypasses Row Level Security. **NEVER** expose this key in client-side code or commit it to version control!
+
+#### 3. Run the Backend
+
+```bash
+# Make sure you're in the backend directory with venv activated
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
+The backend will be available at `http://localhost:8000`
+
+**API Endpoints:**
+- `GET /health` - Health check
+- `POST /process-meeting` - Process audio and send notification (called automatically by mobile app)
+
+**API Documentation:**
+- Visit `http://localhost:8000/docs` for interactive API documentation
+
+#### 4. Update Frontend Backend URL
+
+Make sure your frontend `.env` file has the correct backend URL:
+```
+EXPO_PUBLIC_BACKEND_URL=http://localhost:8000
+```
+
+For testing on a physical device, use your computer's local IP address:
+```
+EXPO_PUBLIC_BACKEND_URL=http://192.168.1.100:8000
+```
+
+### Push Notifications
+
+The app uses Expo Push Notifications to alert users when their meeting transcript is ready.
+
+#### How It Works
+
+1. **Registration**: When a user signs in, the app automatically:
+   - Requests notification permissions
+   - Creates an Android notification channel ("Meeting Ready")
+   - Registers for an Expo Push Token
+   - Stores the token in Supabase
+
+2. **Processing Flow**:
+   - User records a meeting
+   - Audio is uploaded to Supabase Storage
+   - Frontend calls backend `/process-meeting` endpoint
+   - Backend generates mock transcript/summary and updates database
+   - Backend sends push notification via Expo Push Service
+
+3. **Deep Linking**: When user taps the notification:
+   - App opens to the specific meeting detail screen
+   - Uses Expo Router deep linking: `ai-meeting-assistant://meeting/{id}`
+
+#### Testing Push Notifications
+
+**Requirements:**
+- Push notifications **only work on physical devices** (not simulators/emulators)
+- Ensure the backend is running and accessible from your device
+- Grant notification permissions when prompted
+
+**Testing Steps:**
+1. Run the app on a physical device
+2. Sign in to create/restore a session
+3. Grant notification permissions
+4. Record a short meeting
+5. Wait for upload to complete
+6. Backend will process the meeting and send a notification
+7. Tap the notification to open the meeting detail
+
+**Troubleshooting:**
+- Check backend logs for "Push notification sent"
+- Verify push token is stored in Supabase (`push_tokens` table)
+- Ensure `EXPO_PUBLIC_BACKEND_URL` points to accessible IP (not `localhost` for physical devices)
+- Check app foreground/background notification settings
+
+#### Notification Channel (Android)
+
+The app creates a notification channel with these settings:
+- **Channel ID**: `meeting-ready`
+- **Name**: "Meeting Ready"
+- **Importance**: MAX (makes sound and appears on-screen)
+- **Vibration**: Pattern [0, 250, 250, 250]
+
+Users can customize notification behavior in Android Settings > Apps > AI Meeting Assistant > Notifications.
 
 ## Project Structure
 
 ```
 /app
-  /(tabs)           - Tab navigation
-    index.tsx       - Record screen with recording UI
-    meetings.tsx    - Meetings list
-  /meeting/[id].tsx - Meeting detail view
-  auth.tsx          - Authentication screen
+  /(tabs)                  - Tab navigation
+    index.tsx              - Record screen with recording UI
+    meetings.tsx           - Meetings list with status badges
+  /meeting/[id].tsx        - Meeting detail view (transcript + summary)
+  auth.tsx                 - Authentication screen
+  _layout.tsx              - Root layout with auth guard and notification handlers
 /lib
-  supabase.ts       - Supabase client configuration
-/plugins            - Custom Expo config plugins for background audio
-/services           - Recording and meeting service layers
-  recordingService.ts - Audio recording (expo-av wrapper)
-  meetingService.ts   - Meeting CRUD and upload operations
+  supabase.ts              - Supabase client configuration
+  api.ts                   - Backend API client
+/plugins                   - Custom Expo config plugins for background audio
+/services
+  recordingService.ts      - Audio recording (expo-av wrapper)
+  meetingService.ts        - Meeting CRUD, upload, and backend integration
+  notificationsService.ts  - Push notification registration and token management
 /supabase
-  schema.sql        - Database schema and RLS policies
-/backend            - Python FastAPI backend
+  schema.sql               - Database schema, RLS policies, push tokens table
+/backend
+  main.py                  - FastAPI backend with /process-meeting endpoint
+  requirements.txt         - Python dependencies
+  .env.example             - Backend environment template
 ```
 
 ## Architecture Decisions
@@ -170,16 +332,22 @@ See [backend/README.md](backend/README.md) for backend setup instructions.
 
 **File Upload**: Audio recordings are uploaded to Supabase Storage after recording stops. Files are stored at `{user_id}/{meeting_id}.m4a` path structure, enabling user-scoped RLS policies.
 
+**Push Notifications**: Expo Push Notifications alert users when transcripts are ready. Push tokens are stored in Supabase with RLS policies. Deep linking via Expo Router opens specific meeting details when notification is tapped.
+
+**Backend Processing**: After upload, frontend calls backend `/process-meeting` endpoint with signed audio URL. Backend generates mock transcript/summary, updates database, and sends push notification. Fire-and-forget pattern prevents blocking UI.
+
 ## What Would Be Improved With More Time
 
+- Implement real transcription/summarization using AI services (OpenAI Whisper, GPT-4, etc.)
+- Add background job queue for backend processing (Celery, RQ, or Bull)
 - Implement foreground notification for Android recording service
-- Add Expo Push Notifications for transcript completion
-- Implement real transcription/summarization in backend (currently placeholders)
-- Backend webhook/polling to trigger processing after upload
 - Better error handling and retry logic for failed uploads
 - Offline support and sync queue for recordings
 - Audio playback controls on meeting detail screen
-- Unit and integration tests
+- Unit and integration tests (Jest for frontend, pytest for backend)
 - Audio visualization during recording
 - Delete meeting functionality
 - User profile and settings screen
+- Push notification receipt tracking
+- Analytics and monitoring (Sentry, PostHog)
+- Production deployment guides (Fly.io, Railway, Vercel)

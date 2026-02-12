@@ -12,17 +12,18 @@ export default function RecordScreen() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef<number>(0);
 
-  // Cleanup on unmount
+  // Cleanup on unmount only
   useEffect(() => {
     return () => {
       if (timerRef.current) {
         clearInterval(timerRef.current);
       }
-      if (isRecording) {
-        RecordingService.cleanup();
-      }
+      // Cleanup recording service on unmount
+      RecordingService.cleanup().catch((err) => {
+        console.log('Cleanup error (expected if not recording):', err);
+      });
     };
-  }, [isRecording]);
+  }, []); // Empty dependency array - only run on mount/unmount
 
   const formatDuration = (milliseconds: number): string => {
     const totalSeconds = Math.floor(milliseconds / 1000);

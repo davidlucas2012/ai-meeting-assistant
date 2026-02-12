@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS public.meetings (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  status TEXT NOT NULL DEFAULT 'recorded' CHECK (status IN ('recorded', 'uploading', 'upload_failed', 'processing', 'ready')),
+  status TEXT NOT NULL DEFAULT 'recorded' CHECK (status IN ('recorded', 'uploading', 'upload_failed', 'processing', 'ready', 'queued_failed')),
   audio_path TEXT NOT NULL,
   audio_url TEXT,
   transcript TEXT,
@@ -99,6 +99,56 @@ CREATE POLICY "Users can delete their own audio"
 
 -- Grant access to authenticated users
 GRANT ALL ON public.meetings TO authenticated;
+
+-- ============================================================================
+-- Push Notifications Table
+-- ============================================================================
+
+-- Create push_tokens table for storing Expo Push Notification tokens
+CREATE TABLE IF NOT EXISTS public.push_tokens (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  token TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT push_tokens_user_id_token_unique UNIQUE (user_id, token)
+);
+
+-- Create index for faster user queries
+CREATE INDEX IF NOT EXISTS push_tokens_user_id_idx ON public.push_tokens(user_id);
+
+-- Enable Row Level Security (RLS) on push_tokens
+ALTER TABLE public.push_tokens ENABLE ROW LEVEL SECURITY;
+
+-- RLS Policies for push_tokens table
+
+-- Policy: Users can view their own push tokens
+CREATE POLICY "Users can view their own push tokens"
+  ON public.push_tokens
+  FOR SELECT
+  USING (auth.uid() = user_id);
+
+-- Policy: Users can insert their own push tokens
+CREATE POLICY "Users can insert their own push tokens"
+  ON public.push_tokens
+  FOR INSERT
+  WITH CHECK (auth.uid() = user_id);
+
+-- Policy: Users can update their own push tokens
+CREATE POLICY "Users can update their own push tokens"
+  ON public.push_tokens
+  FOR UPDATE
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+
+-- Policy: Users can delete their own push tokens
+CREATE POLICY "Users can delete their own push tokens"
+  ON public.push_tokens
+  FOR DELETE
+  USING (auth.uid() = user_id);
+
+-- Grant access to authenticated users
+GRANT ALL ON public.push_tokens TO authenticated;
 
 -- Note: After running this schema:
 -- 1. Create the 'meeting-audio' storage bucket in the Supabase Dashboard

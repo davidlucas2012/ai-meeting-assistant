@@ -39,9 +39,45 @@ export default function MeetingsScreen() {
     }
   };
 
+  const getStatusColor = (status: string): string => {
+    switch (status) {
+      case 'ready':
+        return '#4CAF50'; // Green
+      case 'processing':
+        return '#2196F3'; // Blue
+      case 'upload_failed':
+      case 'queued_failed':
+        return '#FF3B30'; // Red
+      case 'uploading':
+        return '#FF9800'; // Orange
+      case 'recorded':
+      default:
+        return '#999'; // Gray
+    }
+  };
+
+  const getStatusText = (status: string): string => {
+    switch (status) {
+      case 'ready':
+        return 'Ready';
+      case 'processing':
+        return 'Processing';
+      case 'upload_failed':
+        return 'Upload Failed';
+      case 'queued_failed':
+        return 'Processing Failed';
+      case 'uploading':
+        return 'Uploading';
+      case 'recorded':
+        return 'Recorded';
+      default:
+        return status.charAt(0).toUpperCase() + status.slice(1);
+    }
+  };
+
   const renderMeetingItem = ({ item }: { item: MeetingListItem }) => {
-    const statusColor = item.status === 'ready' ? '#4CAF50' : item.status === 'upload_failed' ? '#FF3B30' : '#999';
-    const statusText = item.status === 'ready' ? 'Ready' : item.status === 'upload_failed' ? 'Upload Failed' : item.status.charAt(0).toUpperCase() + item.status.slice(1);
+    const statusColor = getStatusColor(item.status);
+    const statusText = getStatusText(item.status);
 
     return (
       <Link href={`/meeting/${item.id}`} asChild>

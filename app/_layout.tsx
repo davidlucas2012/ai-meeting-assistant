@@ -3,12 +3,21 @@ import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native
 import { useFonts } from 'expo-font';
 import { Stack, router, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useEffect, useState } from 'react';
+import Constants from 'expo-constants';
+import { useEffect, useState, useRef } from 'react';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/components/useColorScheme';
 import { supabase } from '@/lib/supabase';
 import type { Session } from '@supabase/supabase-js';
+import {
+  configureNotificationHandlers,
+  registerForPushNotifications,
+  upsertPushToken,
+} from '@/services/notificationsService';
+
+// Check if running in Expo Go
+const isExpoGo = Constants.executionEnvironment === 'storeClient';
 
 export {
   // Catch any errors thrown by the Layout component.
@@ -52,7 +61,58 @@ function RootLayoutNav() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const segments = useSegments();
+  const notificationListener = useRef<any>();
+  const responseListener = useRef<any>();
 
+  // Configure notification handlers once on mount
+  useEffect(() => {
+    configureNotificationHandlers();
+  }, []);
+
+  // Handle notification responses (when user taps a notification)
+  useEffect(() => {
+    // Skip notification listeners in Expo Go
+    if (isExpoGo) {
+      return;
+    }
+
+    // Setup notification response listener only in dev builds
+    (async () => {
+      try {
+        const Notifications = await import('expo-notifications');
+
+        // This listener is called when the app is foregrounded or backgrounded
+        // and the user taps on a notification
+        responseListener.current = Notifications.addNotificationResponseReceivedListener((response) => {
+          const data = response.notification.request.content.data;
+          const meetingId = data?.meetingId as string | undefined;
+
+          if (meetingId) {
+            console.log('Notification tapped, navigating to meeting:', meetingId);
+            // Use router.push to navigate to the meeting detail screen
+            router.push(`/meeting/${meetingId}`);
+          }
+        });
+      } catch (error) {
+        console.warn('Failed to setup notification listeners:', error);
+      }
+    })();
+
+    return () => {
+      if (responseListener.current) {
+        (async () => {
+          try {
+            const Notifications = await import('expo-notifications');
+            Notifications.removeNotificationSubscription(responseListener.current);
+          } catch (error) {
+            // Ignore cleanup errors
+          }
+        })();
+      }
+    };
+  }, []);
+
+  // Auth state management
   useEffect(() => {
     // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -67,6 +127,22 @@ function RootLayoutNav() {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  // Register for push notifications when session is available
+  useEffect(() => {
+    if (session?.user && !loading) {
+      // Register for push notifications
+      registerForPushNotifications()
+        .then((token) => {
+          if (token) {
+            return upsertPushToken(token);
+          }
+        })
+        .catch((error) => {
+          console.error('Failed to register push notifications:', error);
+        });
+    }
+  }, [session, loading]);
 
   useEffect(() => {
     if (loading) return;

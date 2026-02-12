@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "ai-meeting-temp",
-    "slug": "ai-meeting-temp",
+    "name": "ai-meeting-assistant",
+    "slug": "ai-meeting-assistant",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "aimeetingtemp",
+    "scheme": "ai-meeting-assistant",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
@@ -37,6 +37,12 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "1fe3db81-a9b9-4901-a5c6-d00fa598e811"
+      }
     }
   }
 }
