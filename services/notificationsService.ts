@@ -4,6 +4,56 @@ import Constants from 'expo-constants';
 
 // Check if running in Expo Go
 const isExpoGo = Constants.executionEnvironment === 'storeClient';
+let hasWarnedMissingFirebase = false;
+
+type LegacyManifest = {
+  android?: {
+    googleServicesFile?: string;
+  };
+};
+
+type Manifest2 = {
+  extra?: {
+    expoClient?: {
+      android?: {
+        googleServicesFile?: string;
+      };
+    };
+  };
+};
+
+function hasAndroidFirebaseConfig(): boolean {
+  const constantsWithManifests = Constants as typeof Constants & {
+    manifest?: LegacyManifest;
+    manifest2?: Manifest2;
+  };
+
+  const googleServicesFile =
+    Constants.expoConfig?.android?.googleServicesFile ||
+    constantsWithManifests.manifest?.android?.googleServicesFile ||
+    constantsWithManifests.manifest2?.extra?.expoClient?.android?.googleServicesFile;
+
+  return Boolean(googleServicesFile);
+}
+
+function isFirebaseNotInitializedError(error: unknown): boolean {
+  if (error instanceof Error) {
+    return /Default FirebaseApp is not initialized/i.test(error.message);
+  }
+
+  return typeof error === 'string' && /Default FirebaseApp is not initialized/i.test(error);
+}
+
+function warnMissingFirebaseSetup(): void {
+  if (hasWarnedMissingFirebase) {
+    return;
+  }
+
+  hasWarnedMissingFirebase = true;
+  console.warn(
+    'Skipping Android push registration: Firebase is not configured. Add google-services.json and set expo.android.googleServicesFile. Guide: https://docs.expo.dev/push-notifications/fcm-credentials/'
+  );
+}
 
 /**
  * Register for push notifications and return the Expo push token.
@@ -32,6 +82,12 @@ export async function registerForPushNotifications(): Promise<string | null> {
     // Push notifications only work on physical devices
     if (!Device.isDevice) {
       console.log('Push notifications require a physical device');
+      return null;
+    }
+
+    // Android push tokens require a configured Firebase app.
+    if (Platform.OS === 'android' && !hasAndroidFirebaseConfig()) {
+      warnMissingFirebaseSetup();
       return null;
     }
 
@@ -73,6 +129,11 @@ export async function registerForPushNotifications(): Promise<string | null> {
     console.log('Push token registered:', tokenData.data);
     return tokenData.data;
   } catch (error) {
+    if (Platform.OS === 'android' && isFirebaseNotInitializedError(error)) {
+      warnMissingFirebaseSetup();
+      return null;
+    }
+
     console.error('Error registering for push notifications:', error);
     return null;
   }
@@ -158,6 +219,8 @@ export async function configureNotificationHandlers(): Promise<void> {
     Notifications.setNotificationHandler({
       handleNotification: async () => ({
         shouldShowAlert: true,
+        shouldShowBanner: true,
+        shouldShowList: true,
         shouldPlaySound: true,
         shouldSetBadge: false,
       }),

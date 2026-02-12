@@ -279,6 +279,10 @@ The app uses Expo Push Notifications to alert users when their meeting transcrip
 - Verify push token is stored in Supabase (`push_tokens` table)
 - Ensure `EXPO_PUBLIC_BACKEND_URL` points to accessible IP (not `localhost` for physical devices)
 - Check app foreground/background notification settings
+- Android requires Firebase FCM setup: place `google-services.json` in the project root and set `expo.android.googleServicesFile` in `app.json` (see Expo FCM guide)
+- Created firebase project and added android to setup googleServicesFile on `app.json`
+
+
 
 #### Notification Channel (Android)
 
