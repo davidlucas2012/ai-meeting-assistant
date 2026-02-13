@@ -30,6 +30,12 @@ CREATE INDEX IF NOT EXISTS meetings_status_idx ON public.meetings(status);
 -- Enable Row Level Security (RLS)
 ALTER TABLE public.meetings ENABLE ROW LEVEL SECURITY;
 
+-- Enable Realtime for the meetings table
+-- This allows the mobile app to receive instant updates when meetings change
+-- Run this in Supabase SQL Editor OR enable via Dashboard:
+-- Dashboard > Database > Replication > Enable for "meetings" table
+ALTER PUBLICATION supabase_realtime ADD TABLE public.meetings;
+
 -- RLS Policies for meetings table
 
 -- Policy: Users can view their own meetings

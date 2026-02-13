@@ -2,6 +2,62 @@
 
 This guide covers common issues and their solutions.
 
+## Realtime Updates Not Working
+
+### Symptoms
+
+- After stopping a recording, the meeting detail page doesn't update automatically (stuck in "Processing..." state)
+- New meetings don't appear in the meetings list without manual refresh
+- Meeting status changes (uploading → processing → ready) don't reflect in the UI
+
+### Root Cause
+
+Supabase Realtime is not enabled for the `meetings` table. The app uses Realtime subscriptions to instantly update the UI when meetings change, eliminating the need for polling or manual refreshes.
+
+### Solution
+
+Enable Realtime for the `meetings` table in Supabase:
+
+#### Option 1: Via SQL Editor (Recommended)
+
+Run this in the Supabase SQL Editor:
+
+```sql
+ALTER PUBLICATION supabase_realtime ADD TABLE public.meetings;
+```
+
+#### Option 2: Via Supabase Dashboard
+
+1. Go to **Database** → **Replication** in Supabase Dashboard
+2. Find the `meetings` table in the list
+3. Toggle the switch to **enable** replication for `meetings`
+4. Click **Save**
+
+### Verification
+
+After enabling Realtime, you should see console logs in the mobile app:
+
+```
+Realtime subscription active for meetings list (INSERT + UPDATE)
+Realtime subscription active
+```
+
+When a meeting updates, you'll see:
+```
+Realtime UPDATE received for meetings list: {...}
+```
+
+### What Gets Updated in Realtime
+
+- **Meetings List**:
+  - New recordings appear instantly (INSERT events)
+  - Status changes reflect immediately (UPDATE events)
+
+- **Meeting Detail Page**:
+  - Status transitions (uploading → processing → ready)
+  - Transcript and summary appear when processing completes
+  - Diarization results update automatically
+
 ## Push Notifications
 
 ### Android Push Troubleshooting (FIS_AUTH_ERROR)

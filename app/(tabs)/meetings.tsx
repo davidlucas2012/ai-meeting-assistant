@@ -89,13 +89,30 @@ export default function MeetingsScreen() {
           .on(
             'postgres_changes',
             {
+              event: 'INSERT',
+              schema: 'public',
+              table: 'meetings',
+              filter: `user_id=eq.${user.id}`,
+            },
+            (payload) => {
+              console.log('Realtime INSERT received for meetings list:', payload);
+              if (payload.new) {
+                const newMeeting = payload.new as MeetingListItem;
+                // Add the new meeting to the top of the list
+                setMeetings((prevMeetings) => [newMeeting, ...prevMeetings]);
+              }
+            }
+          )
+          .on(
+            'postgres_changes',
+            {
               event: 'UPDATE',
               schema: 'public',
               table: 'meetings',
               filter: `user_id=eq.${user.id}`,
             },
             (payload) => {
-              console.log('Realtime update received for meetings list:', payload);
+              console.log('Realtime UPDATE received for meetings list:', payload);
               if (payload.new) {
                 const updatedMeeting = payload.new as MeetingListItem;
                 // Update the meeting in the local state
@@ -109,7 +126,7 @@ export default function MeetingsScreen() {
           )
           .subscribe((status) => {
             if (status === 'SUBSCRIBED') {
-              console.log('Realtime subscription active for meetings list');
+              console.log('Realtime subscription active for meetings list (INSERT + UPDATE)');
             } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
               console.error('Realtime subscription failed:', status);
             }

@@ -35,9 +35,10 @@ npm run android   # Android emulator
 ### 2. Supabase Setup
 
 1. Create a project at [supabase.com](https://supabase.com)
-2. Run `supabase/schema.sql` in SQL Editor
-3. Create storage bucket: `meeting-audio` (private)
-4. Add credentials to `.env`:
+2. Run `supabase/schema.sql` in SQL Editor (includes Realtime setup)
+3. **Enable Realtime**: Database → Replication → Enable for `meetings` table
+4. Create storage bucket: `meeting-audio` (private)
+5. Add credentials to `.env`:
    - `EXPO_PUBLIC_SUPABASE_URL` (Project URL)
    - `EXPO_PUBLIC_SUPABASE_ANON_KEY` (anon/public key)
 
