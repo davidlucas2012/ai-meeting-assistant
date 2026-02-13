@@ -53,7 +53,7 @@ build/
 
 # generated native folders
 /ios
-/android
+# /android - Uncommenting to include Google Services Gradle plugin for FCM
 
 # Firebase credentials (commented out for take-home exam evaluation)
 # In production, this would be gitignored and managed via EAS secrets
