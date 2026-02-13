@@ -68,6 +68,7 @@ The app uses `expo-av` for high-quality audio recording with background support.
 - Real-time duration counter during recording
 - Automatic permission handling for microphone access
 - High-quality audio encoding (AAC at 44.1kHz, 128kbps)
+- **Recommended max recording time: 45 minutes** (to stay within 50MB file size limit)
 
 **Implementation:**
 - Recording service layer (`/services/recordingService.ts`) provides a clean API for recording operations
@@ -312,6 +313,7 @@ Users can customize notification behavior in Android Settings > Apps > AI Meetin
   recordingService.ts      - Audio recording (expo-av wrapper)
   meetingService.ts        - Meeting CRUD, upload, and backend integration
   notificationsService.ts  - Push notification registration and token management
+  queueService.ts          - Persistent upload queue with retry logic
 /supabase
   schema.sql               - Database schema, RLS policies, push tokens table
 /backend
@@ -319,6 +321,111 @@ Users can customize notification behavior in Android Settings > Apps > AI Meetin
   requirements.txt         - Python dependencies
   .env.example             - Backend environment template
 ```
+
+## Reliability Queue
+
+The app includes a persistent queue system that ensures recordings are never lost due to network failures, app crashes, or temporary backend issues.
+
+### How It Works
+
+When you stop a recording, the audio file is immediately **enqueued** for upload rather than uploaded synchronously. This means:
+
+1. **Recording is saved locally** on your device
+2. **Job is added to the queue** (stored in AsyncStorage)
+3. **You can navigate away immediately** - the upload happens in the background
+4. **Queue persists** across app restarts and survives crashes
+5. **Automatic retries** with exponential backoff (up to 5 attempts)
+
+### Queue Architecture
+
+**Storage**: AsyncStorage (single atomic array at `@queue/jobs`)
+- Jobs persist across app sessions
+- Crash recovery resets stuck jobs automatically
+- No data loss even if app is force-quit
+
+**Retry Strategy**: Exponential backoff prevents hammering the backend during outages
+- Attempt 1: Retry after 1 second
+- Attempt 2: Retry after 2 seconds
+- Attempt 3: Retry after 4 seconds
+- Attempt 4: Retry after 8 seconds
+- Attempt 5: Retry after 16 seconds
+- After 5 failed attempts: Job marked as "failed", manual retry available
+
+**Concurrency**: One job at a time (global lock prevents race conditions)
+- Jobs are processed sequentially to avoid overwhelming the backend
+- Queue automatically runs every 15 seconds
+- Queue triggers on app foreground (AppState listener)
+
+### Job Lifecycle
+
+```
+Recording stopped
+    ↓
+Job created (status: pending)
+    ↓
+Queue picks up job (status: running)
+    ↓
+1. Create meeting row in database
+2. Upload audio to Supabase Storage
+3. Request backend processing
+    ↓
+Success → Job completed (removed after 24h)
+Failure → Job pending (retry with backoff)
+    ↓
+Max attempts reached → Job failed (manual retry available)
+```
+
+### Crash Recovery
+
+If the app crashes during upload:
+- On next startup, the queue detects jobs stuck in "running" state
+- These jobs are reset to "pending" with error message "App restarted during job"
+- The upload is retried from the beginning (idempotent operations)
+
+### User Experience
+
+**Meetings List**:
+- Failed meetings show a red "Error" hint with the specific error message
+- "Retry" button appears for failed meetings
+- Tapping "Retry" resets the job and triggers immediate upload
+
+**Meeting Detail**:
+- Failed meetings display the job error in red monospace text
+- Suggested actions based on error type (e.g., "check your connection")
+
+### Troubleshooting Failed Uploads
+
+**"Network error: Unable to connect to server"**
+- Check your internet connection
+- Ensure backend is running and accessible
+- Verify `EXPO_PUBLIC_BACKEND_URL` in `.env` is correct
+- Pull down to refresh and the queue will retry automatically
+
+**"Audio file no longer exists"**
+- The recording file was deleted from device storage
+- Cannot be retried - record a new meeting
+- Audio files are stored in `FileSystem.documentDirectory` and persist until manually deleted
+
+**"Authentication failed"**
+- Your session expired - sign out and sign back in
+- The queue will automatically retry once you're authenticated
+
+**"Recording too large (XXmb). Maximum size is 50MB"**
+- The queue automatically checks file size before upload
+- Default limit: 50MB (configurable in `queueService.ts` - `MAX_FILE_SIZE_MB`)
+- **Recommended max recording time: 45 minutes** (provides safety buffer below 50MB limit)
+- Supabase free tier: 50MB per file, upgrade for larger files
+- **Estimated recording times at 128kbps (AAC):**
+  - 45 minutes ≈ 45MB (recommended)
+  - 50 minutes ≈ 50MB (at limit)
+  - 100 minutes ≈ 100MB (requires plan upgrade)
+- **To increase limit:** Edit `MAX_FILE_SIZE_MB` in `/services/queueService.ts`
+- **To reduce file size:** Lower bitrate in `recordingService.ts` (line 80, 88) from 128000 to 64000
+
+**Checking Queue Status**:
+- Queue runs automatically every 15 seconds
+- Queue also runs when app comes to foreground
+- Check console logs for "Queue loop" and "Processing job" messages
 
 ## Lifecycle & Resilience
 
@@ -328,7 +435,7 @@ The app implements several strategies to ensure reliable operation and automatic
 
 **Status Polling**: On the meeting detail screen, if a meeting status is not "ready", the app polls the database every 5 seconds to check for updates. Polling automatically stops once the meeting reaches "ready" status or when the screen loses focus. This provides near-real-time status updates without requiring push notifications for intermediate states.
 
-**Upload Locking**: An in-memory Set tracks active uploads by meeting ID to prevent duplicate submission from rapid button taps. The lock is released in a finally block to ensure cleanup even on error.
+**Upload Locking**: An in-memory Set tracks active uploads by job ID to prevent duplicate submission. The lock is released in a finally block to ensure cleanup even on error.
 
 **Recording State Machine**: The record screen uses a strict state machine (`idle | recording | uploading | processing`) to prevent impossible state transitions. The record button is disabled during upload and processing states. Recording service guards against starting while already recording or stopping when not recording.
 
@@ -359,13 +466,18 @@ The app implements several strategies to ensure reliable operation and automatic
 - Implement real transcription/summarization using AI services (OpenAI Whisper, GPT-4, etc.)
 - Add background job queue for backend processing (Celery, RQ, or Bull)
 - Implement foreground notification for Android recording service
-- Better error handling and retry logic for failed uploads
-- Offline support and sync queue for recordings
+- **Recording time limit enforcement:**
+  - Show estimated file size during recording (e.g., "12MB / 50MB")
+  - Display warning when approaching 45-minute recommended limit
+  - Auto-stop recording at 48 minutes (safety buffer before 50MB limit)
+  - Allow users to adjust quality vs. duration trade-off
 - Audio playback controls on meeting detail screen
 - Unit and integration tests (Jest for frontend, pytest for backend)
 - Audio visualization during recording
-- Delete meeting functionality
-- User profile and settings screen
+- Delete meeting functionality with automatic audio file cleanup
+- User profile and settings screen with configurable limits
 - Push notification receipt tracking
 - Analytics and monitoring (Sentry, PostHog)
 - Production deployment guides (Fly.io, Railway, Vercel)
+- Queue status indicator in UI (e.g., "2 uploads pending")
+- Manual audio file cleanup for completed meetings

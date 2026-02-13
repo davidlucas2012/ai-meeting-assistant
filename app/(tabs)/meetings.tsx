@@ -4,6 +4,7 @@ import { Link } from 'expo-router';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import * as MeetingService from '@/services/meetingService';
 import type { MeetingListItem } from '@/services/meetingService';
+import * as QueueService from '@/services/queueService';
 import { signOut } from '@/lib/supabase';
 import StatusBadge from '@/components/StatusBadge';
 
@@ -11,6 +12,7 @@ export default function MeetingsScreen() {
   const [meetings, setMeetings] = useState<MeetingListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [jobErrors, setJobErrors] = useState<Record<string, string>>({});
   const appState = useRef<AppStateStatus>(AppState.currentState);
   const lastRefreshTime = useRef<number>(Date.now());
 
@@ -18,6 +20,17 @@ export default function MeetingsScreen() {
     try {
       const data = await MeetingService.listMeetings();
       setMeetings(data);
+
+      // Load job errors for failed meetings
+      const jobs = await QueueService.listJobs();
+      const errors: Record<string, string> = {};
+      jobs.forEach((job) => {
+        if (job.status === 'failed' && job.lastError) {
+          errors[job.meetingId] = job.lastError;
+        }
+      });
+      setJobErrors(errors);
+
       lastRefreshTime.current = Date.now();
     } catch (error) {
       console.error('Failed to load meetings:', error);
@@ -65,22 +78,46 @@ export default function MeetingsScreen() {
   };
 
   const renderMeetingItem = ({ item }: { item: MeetingListItem }) => {
+    const canRetry = item.status === 'upload_failed' || item.status === 'queued_failed';
+    const jobError = jobErrors[item.id];
+
+    const handleRetry = async () => {
+      try {
+        await MeetingService.retryMeeting(item.id);
+        handleRefresh(); // Reload list
+      } catch (error) {
+        console.error('Retry failed:', error);
+      }
+    };
+
     return (
-      <Link href={`/meeting/${item.id}`} asChild>
-        <TouchableOpacity style={styles.meetingItem}>
-          <View style={styles.meetingHeader}>
-            <Text style={styles.meetingDate}>
-              {MeetingService.formatDateTime(item.created_at)}
-            </Text>
-            <StatusBadge status={item.status} />
-          </View>
-          {item.duration_millis && (
-            <Text style={styles.meetingDuration}>
-              Duration: {MeetingService.formatDuration(item.duration_millis)}
-            </Text>
-          )}
-        </TouchableOpacity>
-      </Link>
+      <View style={styles.meetingItemContainer}>
+        <Link href={`/meeting/${item.id}`} asChild>
+          <TouchableOpacity style={styles.meetingItem}>
+            <View style={styles.meetingHeader}>
+              <Text style={styles.meetingDate}>
+                {MeetingService.formatDateTime(item.created_at)}
+              </Text>
+              <StatusBadge status={item.status} />
+            </View>
+            {item.duration_millis && (
+              <Text style={styles.meetingDuration}>
+                Duration: {MeetingService.formatDuration(item.duration_millis)}
+              </Text>
+            )}
+            {jobError && (
+              <Text style={styles.errorHint} numberOfLines={1}>
+                Error: {jobError}
+              </Text>
+            )}
+          </TouchableOpacity>
+        </Link>
+        {canRetry && (
+          <TouchableOpacity style={styles.retryButton} onPress={handleRetry}>
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
+        )}
+      </View>
     );
   };
 
@@ -158,11 +195,13 @@ const styles = StyleSheet.create({
   listContainer: {
     padding: 20,
   },
+  meetingItemContainer: {
+    marginBottom: 12,
+  },
   meetingItem: {
     padding: 15,
     backgroundColor: '#f9f9f9',
     borderRadius: 12,
-    marginBottom: 12,
     borderWidth: 1,
     borderColor: '#eee',
   },
@@ -181,6 +220,25 @@ const styles = StyleSheet.create({
   meetingDuration: {
     fontSize: 13,
     color: '#666',
+  },
+  errorHint: {
+    fontSize: 12,
+    color: '#FF3B30',
+    marginTop: 4,
+    fontStyle: 'italic',
+  },
+  retryButton: {
+    marginTop: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    backgroundColor: '#FF3B30',
+    borderRadius: 8,
+    alignSelf: 'flex-start',
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
   },
   emptyContainer: {
     flex: 1,

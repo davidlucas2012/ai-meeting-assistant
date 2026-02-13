@@ -5,6 +5,8 @@ import { Stack, router, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import Constants from 'expo-constants';
 import { useEffect, useState, useRef } from 'react';
+import { AppState } from 'react-native';
+import type { AppStateStatus } from 'react-native';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/components/useColorScheme';
@@ -15,6 +17,7 @@ import {
   registerForPushNotifications,
   upsertPushToken,
 } from '@/services/notificationsService';
+import * as QueueService from '@/services/queueService';
 
 // Check if running in Expo Go
 const isExpoGo = Constants.executionEnvironment === 'storeClient';
@@ -143,6 +146,37 @@ function RootLayoutNav() {
         });
     }
   }, [session, loading]);
+
+  // Start queue loop when session is available
+  useEffect(() => {
+    if (session?.user && !loading) {
+      console.log('Starting queue loop...');
+      QueueService.cleanupOldJobs().catch(console.error);
+      QueueService.startQueueLoop();
+
+      return () => {
+        console.log('Stopping queue loop...');
+        QueueService.stopQueueLoop();
+      };
+    }
+  }, [session, loading]);
+
+  // Resume queue when app comes to foreground
+  useEffect(() => {
+    const appStateRef = { current: AppState.currentState };
+
+    const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
+      if (appStateRef.current.match(/inactive|background/) && nextAppState === 'active') {
+        if (session?.user) {
+          console.log('App foregrounded, triggering queue...');
+          QueueService.runQueueOnce().catch(console.error);
+        }
+      }
+      appStateRef.current = nextAppState;
+    });
+
+    return () => subscription.remove();
+  }, [session]);
 
   useEffect(() => {
     if (loading) return;

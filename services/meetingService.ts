@@ -5,8 +5,9 @@ import { getCurrentPushToken } from './notificationsService';
 
 /**
  * Generate a UUID v4 (works in React Native)
+ * Exported for use by queueService
  */
-function generateUUID(): string {
+export function generateMeetingId(): string {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
     const r = (Math.random() * 16) | 0;
     const v = c === 'x' ? r : (r & 0x3) | 0x8;
@@ -41,6 +42,158 @@ export interface MeetingListItem {
 }
 
 /**
+ * Create a meeting row in the database
+ * Uses upsert to handle retries (if meeting exists, update instead of insert)
+ */
+export async function createMeetingRow(
+  meetingId: string,
+  userId: string,
+  audioPath: string,
+  durationMillis: number
+): Promise<void> {
+  // Check if meeting already exists
+  const { data: existing } = await supabase
+    .from('meetings')
+    .select('id')
+    .eq('id', meetingId)
+    .single();
+
+  if (existing) {
+    // Update existing meeting
+    const { error } = await supabase
+      .from('meetings')
+      .update({ status: 'uploading' as MeetingStatus })
+      .eq('id', meetingId);
+
+    if (error) {
+      throw new Error(`Failed to update meeting record: ${error.message}`);
+    }
+  } else {
+    // Insert new meeting
+    const { error } = await supabase.from('meetings').insert({
+      id: meetingId,
+      user_id: userId,
+      audio_path: audioPath,
+      status: 'uploading' as MeetingStatus,
+      duration_millis: durationMillis,
+    });
+
+    if (error) {
+      throw new Error(`Failed to create meeting record: ${error.message}`);
+    }
+  }
+}
+
+/**
+ * Upload audio file to Supabase Storage
+ */
+export async function uploadAudio(
+  meetingId: string,
+  localUri: string,
+  audioPath: string
+): Promise<void> {
+  try {
+    // Read local file as base64
+    const base64 = await FileSystem.readAsStringAsync(localUri, {
+      encoding: 'base64',
+    });
+
+    // Convert base64 to binary
+    const byteCharacters = atob(base64);
+    const byteNumbers = new Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteNumbers[i] = byteCharacters.charCodeAt(i);
+    }
+    const byteArray = new Uint8Array(byteNumbers);
+
+    // Upload to Supabase Storage
+    const { error: uploadError } = await supabase.storage
+      .from('meeting-audio')
+      .upload(audioPath, byteArray, {
+        contentType: 'audio/m4a',
+        upsert: false,
+      });
+
+    if (uploadError) {
+      // Update meeting status to upload_failed
+      await supabase
+        .from('meetings')
+        .update({ status: 'upload_failed' as MeetingStatus })
+        .eq('id', meetingId);
+
+      throw new Error(`Failed to upload audio: ${uploadError.message}`);
+    }
+  } catch (error) {
+    // Update meeting status to upload_failed if not already done
+    await supabase
+      .from('meetings')
+      .update({ status: 'upload_failed' as MeetingStatus })
+      .eq('id', meetingId)
+      .then(() => {})
+      .catch(() => {}); // Ignore update errors
+
+    throw error;
+  }
+}
+
+/**
+ * Request backend processing for a meeting
+ */
+export async function requestProcessing(
+  meetingId: string,
+  audioPath: string
+): Promise<void> {
+  try {
+    // Create a signed URL for the backend to download the audio
+    const { data: signedUrlData, error: signedUrlError } = await supabase.storage
+      .from('meeting-audio')
+      .createSignedUrl(audioPath, 3600); // 1 hour expiry
+
+    if (signedUrlError || !signedUrlData) {
+      // Update meeting status to upload_failed
+      await supabase
+        .from('meetings')
+        .update({ status: 'upload_failed' as MeetingStatus })
+        .eq('id', meetingId);
+      throw new Error(`Failed to create signed URL: ${signedUrlError?.message || 'Unknown error'}`);
+    }
+
+    const audioUrl = signedUrlData.signedUrl;
+
+    // Get user's push token
+    const pushToken = await getCurrentPushToken();
+
+    // Update meeting status to processing immediately
+    await supabase
+      .from('meetings')
+      .update({ status: 'processing' as MeetingStatus })
+      .eq('id', meetingId);
+
+    // Fire-and-forget call to backend (don't await to avoid blocking)
+    postJson('/process-meeting', {
+      audio_url: audioUrl,
+      meeting_id: meetingId,
+      push_token: pushToken,
+    }).catch((error) => {
+      console.error('Backend processing failed:', error);
+      // Update meeting status to indicate backend failure
+      supabase
+        .from('meetings')
+        .update({ status: 'queued_failed' as MeetingStatus })
+        .eq('id', meetingId)
+        .then(() => console.log('Meeting status updated to queued_failed'));
+    });
+  } catch (error) {
+    // Update status to queued_failed
+    await supabase
+      .from('meetings')
+      .update({ status: 'queued_failed' as MeetingStatus })
+      .eq('id', meetingId);
+    throw error;
+  }
+}
+
+/**
  * Create a meeting record and upload the audio file to Supabase Storage.
  * This function:
  * 1. Gets the current user session
@@ -50,6 +203,7 @@ export interface MeetingListItem {
  * 5. Uploads the file to Supabase Storage
  * 6. Updates the meeting record with upload status
  *
+ * @deprecated Use submitRecording() instead for better reliability and background uploads
  * @param localUri - The local file URI of the recorded audio
  * @param durationMillis - Duration of the recording in milliseconds
  * @returns The meeting ID
@@ -60,7 +214,7 @@ export async function createMeetingAndUploadAudio(
   durationMillis: number
 ): Promise<{ meetingId: string }> {
   // Generate meeting ID early for locking
-  const meetingId = generateUUID();
+  const meetingId = generateMeetingId();
 
   // Check if upload is already in progress for this meeting
   if (activeUploads.has(meetingId)) {
@@ -338,5 +492,56 @@ export function formatDateTime(dateString: string): string {
     year: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
+  });
+}
+
+/**
+ * Submit a recording to the queue for upload and processing
+ * Returns immediately with job ID and meeting ID
+ */
+export async function submitRecording(
+  localUri: string,
+  durationMillis: number
+): Promise<{ jobId: string; meetingId: string }> {
+  const { enqueueUploadAndProcess } = await import('./queueService');
+  return await enqueueUploadAndProcess(localUri, durationMillis);
+}
+
+/**
+ * Retry a failed meeting upload/processing
+ * Resets the job to pending and triggers queue
+ */
+export async function retryMeeting(meetingId: string): Promise<void> {
+  const { listJobs, updateJob, runQueueOnce } = await import('./queueService');
+
+  // Find job for this meetingId
+  const jobs = await listJobs();
+  const job = jobs.find((j) => j.meetingId === meetingId && j.status === 'failed');
+
+  if (!job) {
+    throw new Error('No failed job found for this meeting');
+  }
+
+  // Reset job to pending
+  await updateJob(job.id, {
+    status: 'pending',
+    attempts: 0,
+    lastError: null,
+    nextRunAt: Date.now(), // Can run immediately
+  });
+
+  // Reset meeting status
+  const { data: { session } } = await supabase.auth.getSession();
+  if (session?.user) {
+    await supabase
+      .from('meetings')
+      .update({ status: 'uploading' as MeetingStatus })
+      .eq('id', meetingId)
+      .eq('user_id', session.user.id);
+  }
+
+  // Trigger queue
+  runQueueOnce().catch((error) => {
+    console.error('Failed to trigger queue:', error);
   });
 }

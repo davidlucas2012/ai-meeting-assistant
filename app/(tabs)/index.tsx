@@ -75,24 +75,23 @@ export default function RecordScreen() {
 
         console.log('Recording saved:', result);
 
-        // Upload to Supabase
+        // Enqueue upload (returns immediately)
         setRecordState('uploading');
-        setSavedMessage('Uploading...');
+        setSavedMessage('Queued for upload...');
 
-        const { meetingId } = await MeetingService.createMeetingAndUploadAudio(
+        const { meetingId } = await MeetingService.submitRecording(
           result.uri,
           result.durationMillis
         );
 
-        setRecordState('processing');
-        setSavedMessage('Upload complete!');
+        setSavedMessage('Upload queued!');
 
-        // Clear the message after 2 seconds, then navigate
+        // Clear the message after 1.5 seconds, then navigate
         setTimeout(() => {
           setSavedMessage('');
           setRecordState('idle');
           router.push(`/meeting/${meetingId}`);
-        }, 2000);
+        }, 1500);
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to stop recording or upload';
         setErrorMessage(message);

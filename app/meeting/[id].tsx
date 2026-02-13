@@ -3,6 +3,7 @@ import { useLocalSearchParams, Stack, useFocusEffect } from 'expo-router';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import * as MeetingService from '@/services/meetingService';
 import type { Meeting } from '@/services/meetingService';
+import * as QueueService from '@/services/queueService';
 import StatusBadge from '@/components/StatusBadge';
 import InlineError from '@/components/InlineError';
 
@@ -12,6 +13,7 @@ export default function MeetingDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [jobError, setJobError] = useState<string | null>(null);
   const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const loadMeeting = useCallback(async () => {
@@ -22,6 +24,15 @@ export default function MeetingDetailScreen() {
       } else {
         setMeeting(data);
         setErrorMessage(null);
+
+        // Load job error if exists
+        const jobs = await QueueService.listJobs();
+        const job = jobs.find((j) => j.meetingId === data.id);
+        if (job && job.status === 'failed' && job.lastError) {
+          setJobError(job.lastError);
+        } else {
+          setJobError(null);
+        }
       }
     } catch (error) {
       console.error('Failed to load meeting:', error);
@@ -141,15 +152,17 @@ export default function MeetingDetailScreen() {
             ) : meeting.status === 'upload_failed' ? (
               <>
                 <Text style={styles.errorTitle}>Upload Failed</Text>
+                {jobError && <Text style={styles.errorDetail}>{jobError}</Text>}
                 <Text style={styles.errorText}>
-                  The audio file failed to upload. Please try recording again.
+                  The audio file failed to upload. Pull down to retry or check your connection.
                 </Text>
               </>
             ) : meeting.status === 'queued_failed' ? (
               <>
                 <Text style={styles.errorTitle}>Processing Failed</Text>
+                {jobError && <Text style={styles.errorDetail}>{jobError}</Text>}
                 <Text style={styles.errorText}>
-                  The meeting could not be processed. Please contact support if this issue persists.
+                  The meeting could not be queued for processing. Pull down to retry.
                 </Text>
               </>
             ) : (
@@ -246,6 +259,13 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#FF3B30',
     marginBottom: 12,
+    textAlign: 'center',
+  },
+  errorDetail: {
+    fontSize: 13,
+    color: '#FF3B30',
+    marginBottom: 8,
+    fontFamily: 'monospace',
     textAlign: 'center',
   },
   errorText: {
