@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import * as MeetingService from '@/services/meetingService';
 import type { MeetingListItem } from '@/services/meetingService';
 import * as QueueService from '@/services/queueService';
-import { supabase, signOut } from '@/lib/supabase';
+import { supabase } from '@/lib/supabase';
 import StatusBadge from '@/components/StatusBadge';
 import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription';
 
@@ -104,14 +104,6 @@ export default function MeetingsScreen() {
     setRefreshing(false);
   }, [loadMeetings]);
 
-  const handleSignOut = async () => {
-    try {
-      await signOut();
-    } catch (error) {
-      console.error('Failed to sign out:', error);
-    }
-  };
-
   const renderMeetingItem = ({ item }: { item: MeetingListItem }) => {
     const canRetry = item.status === 'upload_failed' || item.status === 'queued_failed';
     const jobError = jobErrors[item.id];
@@ -130,16 +122,24 @@ export default function MeetingsScreen() {
         <Link href={`/meeting/${item.id}`} asChild>
           <TouchableOpacity style={styles.meetingItem}>
             <View style={styles.meetingHeader}>
-              <Text style={styles.meetingDate}>
-                {MeetingService.formatDateTime(item.created_at)}
+              <Text style={styles.meetingTitle} numberOfLines={1}>
+                {item.title || MeetingService.formatDateTime(item.created_at)}
               </Text>
               <StatusBadge status={item.status} />
             </View>
-            {item.duration_millis && (
-              <Text style={styles.meetingDuration}>
-                Duration: {MeetingService.formatDuration(item.duration_millis)}
+            <View style={styles.meetingMeta}>
+              <Text style={styles.meetingDate}>
+                {MeetingService.formatDateTime(item.created_at)}
               </Text>
-            )}
+              {item.duration_millis && (
+                <>
+                  <Text style={styles.metaSeparator}>•</Text>
+                  <Text style={styles.meetingDuration}>
+                    {MeetingService.formatDuration(item.duration_millis)}
+                  </Text>
+                </>
+              )}
+            </View>
             {jobError && (
               <Text style={styles.errorHint} numberOfLines={1}>
                 Error: {jobError}
@@ -166,13 +166,6 @@ export default function MeetingsScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Meetings</Text>
-        <TouchableOpacity onPress={handleSignOut} style={styles.signOutButton}>
-          <Text style={styles.signOutText}>Sign Out</Text>
-        </TouchableOpacity>
-      </View>
-
       {meetings.length === 0 ? (
         <View style={styles.emptyContainer}>
           <Text style={styles.emptyText}>No meetings yet</Text>
@@ -203,30 +196,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 10,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  signOutButton: {
-    paddingHorizontal: 15,
-    paddingVertical: 8,
-    borderRadius: 6,
-    backgroundColor: '#f5f5f5',
-  },
-  signOutText: {
-    fontSize: 14,
-    color: '#666',
-    fontWeight: '600',
-  },
   listContainer: {
     padding: 20,
   },
@@ -244,13 +213,27 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 6,
   },
-  meetingDate: {
-    fontSize: 15,
+  meetingTitle: {
+    fontSize: 16,
     fontWeight: '600',
     color: '#333',
     flex: 1,
+  },
+  meetingMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  meetingDate: {
+    fontSize: 13,
+    color: '#666',
+  },
+  metaSeparator: {
+    fontSize: 13,
+    color: '#999',
+    marginHorizontal: 8,
   },
   meetingDuration: {
     fontSize: 13,

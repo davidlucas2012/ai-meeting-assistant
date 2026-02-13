@@ -325,12 +325,14 @@ async def process_meeting(request: ProcessMeetingRequest):
         user_prompt = f"""Analyze the following meeting transcript and return JSON only with this exact structure:
 
 {{
+  "title": "Brief descriptive title for the meeting (max 30 characters)",
   "clean_transcript": "cleaned and formatted version of the transcript",
   "summary": "2-3 sentence high-level summary of the meeting",
   "key_points": ["point 1", "point 2", "point 3"],
   "action_items": ["action 1", "action 2"]
 }}
 
+The title should capture the main topic/purpose of the meeting in 30 characters or less.
 If there are no action items, use an empty array. Keep the response concise.
 
 Transcript:
@@ -361,6 +363,7 @@ Transcript:
 
             parsed_analysis = json.loads(response_text)
 
+            meeting_title = parsed_analysis.get("title", "")[:30]  # Enforce 30 char limit
             clean_transcript = parsed_analysis.get("clean_transcript", raw_transcript)
             summary_text = parsed_analysis.get("summary", "")
             key_points = parsed_analysis.get("key_points", [])
@@ -404,6 +407,7 @@ Transcript:
             "status": "ready",
             "transcript": final_transcript,
             "summary": final_summary,
+            "title": meeting_title if 'meeting_title' in locals() else None,
         }).eq("id", meeting_id).execute()
 
         if not update_result.data:

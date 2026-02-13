@@ -46,6 +46,7 @@ export interface Meeting {
   audio_url: string | null;
   transcript: string | null;
   summary: string | null;
+  title: string | null;
   duration_millis: number | null;
   transcript_diarized: string | null;
   diarization_json: Diarization | null;
@@ -55,6 +56,7 @@ export interface MeetingListItem {
   id: string;
   created_at: string;
   status: MeetingStatus;
+  title: string | null;
   duration_millis: number | null;
 }
 
@@ -418,7 +420,7 @@ export async function listMeetings(): Promise<MeetingListItem[]> {
 
     const { data, error } = await supabase
       .from('meetings')
-      .select('id, created_at, status, duration_millis')
+      .select('id, created_at, status, title, duration_millis')
       .eq('user_id', session.user.id)
       .order('created_at', { ascending: false });
 

@@ -1,34 +1,34 @@
-import { useState } from 'react';
+import { supabase } from "@/lib/supabase";
+import { router } from "expo-router";
+import { useState } from "react";
 import {
-  StyleSheet,
-  Text,
-  View,
-  TextInput,
-  TouchableOpacity,
-  Alert,
   ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Platform,
-} from 'react-native';
-import { router } from 'expo-router';
-import { supabase } from '@/lib/supabase';
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
 
 export default function AuthScreen() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
+  const [mode, setMode] = useState<"signin" | "signup">("signin");
 
   const handleAuth = async () => {
     if (!email || !password) {
-      Alert.alert('Error', 'Please enter both email and password');
+      Alert.alert("Error", "Please enter both email and password");
       return;
     }
 
     setLoading(true);
 
     try {
-      if (mode === 'signin') {
+      if (mode === "signin") {
         const { error } = await supabase.auth.signInWithPassword({
           email,
           password,
@@ -36,7 +36,7 @@ export default function AuthScreen() {
 
         if (error) throw error;
 
-        router.replace('/(tabs)');
+        router.replace("/(tabs)");
       } else {
         const { error } = await supabase.auth.signUp({
           email,
@@ -46,37 +46,40 @@ export default function AuthScreen() {
         if (error) throw error;
 
         Alert.alert(
-          'Success',
-          'Account created! Please check your email to verify your account.',
+          "Success",
+          "Account created! Please check your email to verify your account.",
           [
             {
-              text: 'OK',
-              onPress: () => setMode('signin'),
+              text: "OK",
+              onPress: () => setMode("signin"),
             },
-          ]
+          ],
         );
       }
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'An error occurred during authentication');
-      console.error('Auth error:', error);
+      Alert.alert(
+        "Error",
+        error.message || "An error occurred during authentication",
+      );
+      console.error("Auth error:", error);
     } finally {
       setLoading(false);
     }
   };
 
   const toggleMode = () => {
-    setMode(mode === 'signin' ? 'signup' : 'signin');
+    setMode(mode === "signin" ? "signup" : "signin");
   };
 
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
       <View style={styles.content}>
         <Text style={styles.title}>AI Meeting Assistant</Text>
         <Text style={styles.subtitle}>
-          {mode === 'signin' ? 'Sign in to continue' : 'Create an account'}
+          {mode === "signin" ? "Sign in to continue" : "Create an account"}
         </Text>
 
         <View style={styles.form}>
@@ -113,7 +116,7 @@ export default function AuthScreen() {
               <ActivityIndicator color="#fff" />
             ) : (
               <Text style={styles.buttonText}>
-                {mode === 'signin' ? 'Sign In' : 'Sign Up'}
+                {mode === "signin" ? "Sign In" : "Sign Up"}
               </Text>
             )}
           </TouchableOpacity>
@@ -124,9 +127,9 @@ export default function AuthScreen() {
             disabled={loading}
           >
             <Text style={styles.toggleButtonText}>
-              {mode === 'signin'
+              {mode === "signin"
                 ? "Don't have an account? Sign up"
-                : 'Already have an account? Sign in'}
+                : "Already have an account? Sign in"}
             </Text>
           </TouchableOpacity>
         </View>
@@ -138,46 +141,46 @@ export default function AuthScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: "#f5f5f5",
   },
   content: {
     flex: 1,
-    justifyContent: 'center',
+    justifyContent: "center",
     paddingHorizontal: 30,
   },
   title: {
     fontSize: 32,
-    fontWeight: 'bold',
-    color: '#333',
+    fontWeight: "bold",
+    color: "#333",
     marginBottom: 10,
-    textAlign: 'center',
+    textAlign: "center",
   },
   subtitle: {
     fontSize: 16,
-    color: '#666',
+    color: "#666",
     marginBottom: 40,
-    textAlign: 'center',
+    textAlign: "center",
   },
   form: {
-    width: '100%',
+    width: "100%",
   },
   input: {
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
     paddingHorizontal: 20,
     paddingVertical: 15,
     borderRadius: 10,
     fontSize: 16,
     marginBottom: 15,
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: "#ddd",
   },
   button: {
-    backgroundColor: '#FF3B30',
+    backgroundColor: "#000000",
     paddingVertical: 15,
     borderRadius: 10,
-    alignItems: 'center',
+    alignItems: "center",
     marginTop: 10,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: {
       width: 0,
       height: 2,
@@ -190,16 +193,16 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   buttonText: {
-    color: '#fff',
+    color: "#fff",
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   toggleButton: {
     marginTop: 20,
-    alignItems: 'center',
+    alignItems: "center",
   },
   toggleButtonText: {
-    color: '#666',
+    color: "#666",
     fontSize: 14,
   },
 });

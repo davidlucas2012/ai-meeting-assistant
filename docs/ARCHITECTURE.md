@@ -125,10 +125,16 @@ Each queued job executes three sequential steps:
 Backend receives the processing request and executes:
 
 1. **Download Audio**: Fetch audio file from signed Supabase Storage URL
-2. **Transcribe**: Generate mock transcript (placeholder for Whisper/Speech-to-Text API)
-3. **Summarize**: Generate mock summary (placeholder for GPT-4/LLM API)
-4. **Update Database**: Set meeting status to `ready`, store transcript and summary
+2. **Transcribe**: Generate transcript using OpenAI Whisper API
+3. **Analyze with GPT**: Generate title, summary, key points, and action items
+   - **Title**: Brief descriptive title (max 30 chars) capturing the main topic
+   - **Summary**: 2-3 sentence high-level overview
+   - **Key Points**: Array of important discussion points
+   - **Action Items**: Array of actionable tasks identified
+4. **Update Database**: Set meeting status to `ready`, store title, transcript, and summary
 5. **Send Push Notification**: Trigger Expo Push Service with deep link data
+
+**Title Generation**: The LLM analyzes the transcript content to generate a concise title that captures the meeting's main topic or purpose. Titles are automatically truncated to 30 characters to ensure consistent UI layout.
 
 **Note**: Processing is currently synchronous within the HTTP request. A production implementation would use a background job queue (Celery, Bull, or RQ) to handle long-running transcription tasks.
 

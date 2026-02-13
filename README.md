@@ -35,12 +35,17 @@ npm run android   # Android emulator
 ### 2. Supabase Setup
 
 1. Create a project at [supabase.com](https://supabase.com)
-2. Run `supabase/schema.sql` in SQL Editor (includes Realtime setup)
+2. Run `supabase/schema.sql` in SQL Editor (includes Realtime setup + meeting titles)
 3. **Enable Realtime**: Database → Replication → Enable for `meetings` table
 4. Create storage bucket: `meeting-audio` (private)
 5. Add credentials to `.env`:
    - `EXPO_PUBLIC_SUPABASE_URL` (Project URL)
    - `EXPO_PUBLIC_SUPABASE_ANON_KEY` (anon/public key)
+
+**Note**: If upgrading from an older version, run this migration to add meeting titles:
+```sql
+ALTER TABLE public.meetings ADD COLUMN IF NOT EXISTS title TEXT;
+```
 
 ### 3. Backend
 
@@ -118,7 +123,7 @@ After a meeting is transcribed, you can optionally generate speaker labels to or
 
 **State Management:** React hooks (useState, useRef, useEffect) for local component state. Supabase auth listener in root layout manages global authentication state. No Redux/MobX needed for this scope—keeps codebase simple and reduces boilerplate.
 
-**Backend:** FastAPI (Python) for async support and auto-generated API docs at `/docs`. Separation from mobile app allows independent scaling. `/process-meeting` endpoint downloads audio, transcribes with OpenAI Whisper, generates structured summary with GPT-4o-mini (key points + action items), updates database, and sends push notification.
+**Backend:** FastAPI (Python) for async support and auto-generated API docs at `/docs`. Separation from mobile app allows independent scaling. `/process-meeting` endpoint downloads audio, transcribes with OpenAI Whisper, generates structured summary with GPT-4o-mini (title, key points, action items), updates database, and sends push notification. Each meeting gets an AI-generated title (max 30 chars) based on transcript content.
 
 **Database & Auth:** Supabase for PostgreSQL database, email/password authentication, and file storage. Row Level Security (RLS) ensures users can only access their own data. Session persistence via expo-secure-store on native platforms.
 

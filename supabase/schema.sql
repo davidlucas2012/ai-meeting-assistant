@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS public.meetings (
   audio_url TEXT,
   transcript TEXT,
   summary TEXT,
+  title TEXT,  -- AI-generated meeting title (max 30 chars) based on transcript content
   duration_millis INTEGER,
   -- Optional speaker diarization: generated on-demand from stored transcript
   -- Raw transcript stored in 'transcript', speaker-labeled version stored here
