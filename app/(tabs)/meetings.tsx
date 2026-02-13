@@ -5,7 +5,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import * as MeetingService from '@/services/meetingService';
 import type { MeetingListItem } from '@/services/meetingService';
 import * as QueueService from '@/services/queueService';
-import { signOut } from '@/lib/supabase';
+import { supabase, signOut } from '@/lib/supabase';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 import StatusBadge from '@/components/StatusBadge';
 
 export default function MeetingsScreen() {
@@ -15,6 +16,7 @@ export default function MeetingsScreen() {
   const [jobErrors, setJobErrors] = useState<Record<string, string>>({});
   const appState = useRef<AppStateStatus>(AppState.currentState);
   const lastRefreshTime = useRef<number>(Date.now());
+  const channelRef = useRef<RealtimeChannel | null>(null);
 
   const loadMeetings = useCallback(async () => {
     try {
@@ -62,6 +64,74 @@ export default function MeetingsScreen() {
       subscription.remove();
     };
   }, [loadMeetings]);
+
+  // Subscribe to realtime updates for all meetings
+  useEffect(() => {
+    // Avoid duplicate subscriptions
+    if (channelRef.current) {
+      console.log('Realtime channel already active');
+      return;
+    }
+
+    const setupRealtimeSubscription = async () => {
+      try {
+        // Get current user ID for filtering
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          console.log('No user found, skipping realtime subscription');
+          return;
+        }
+
+        console.log('Subscribing to realtime updates for all meetings');
+
+        const channel = supabase
+          .channel('meetings-list')
+          .on(
+            'postgres_changes',
+            {
+              event: 'UPDATE',
+              schema: 'public',
+              table: 'meetings',
+              filter: `user_id=eq.${user.id}`,
+            },
+            (payload) => {
+              console.log('Realtime update received for meetings list:', payload);
+              if (payload.new) {
+                const updatedMeeting = payload.new as MeetingListItem;
+                // Update the meeting in the local state
+                setMeetings((prevMeetings) =>
+                  prevMeetings.map((meeting) =>
+                    meeting.id === updatedMeeting.id ? updatedMeeting : meeting
+                  )
+                );
+              }
+            }
+          )
+          .subscribe((status) => {
+            if (status === 'SUBSCRIBED') {
+              console.log('Realtime subscription active for meetings list');
+            } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+              console.error('Realtime subscription failed:', status);
+            }
+          });
+
+        channelRef.current = channel;
+      } catch (error) {
+        console.error('Failed to setup realtime subscription:', error);
+      }
+    };
+
+    setupRealtimeSubscription();
+
+    // Cleanup on unmount
+    return () => {
+      if (channelRef.current) {
+        console.log('Unsubscribing from realtime updates');
+        supabase.removeChannel(channelRef.current);
+        channelRef.current = null;
+      }
+    };
+  }, []);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);

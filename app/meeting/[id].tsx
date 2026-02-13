@@ -1,11 +1,13 @@
 import { StyleSheet, Text, View, ScrollView, ActivityIndicator } from 'react-native';
-import { useLocalSearchParams, Stack, useFocusEffect } from 'expo-router';
+import { useLocalSearchParams, Stack } from 'expo-router';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import * as MeetingService from '@/services/meetingService';
 import type { Meeting } from '@/services/meetingService';
 import * as QueueService from '@/services/queueService';
 import StatusBadge from '@/components/StatusBadge';
 import InlineError from '@/components/InlineError';
+import { supabase } from '@/lib/supabase';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 
 export default function MeetingDetailScreen() {
   const { id } = useLocalSearchParams();
@@ -14,7 +16,7 @@ export default function MeetingDetailScreen() {
   const [notFound, setNotFound] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [jobError, setJobError] = useState<string | null>(null);
-  const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const channelRef = useRef<RealtimeChannel | null>(null);
 
   const loadMeeting = useCallback(async () => {
     try {
@@ -47,46 +49,55 @@ export default function MeetingDetailScreen() {
     loadMeeting();
   }, [loadMeeting]);
 
-  // Poll for status updates when screen is focused and status is not ready
-  useFocusEffect(
-    useCallback(() => {
-      // Start polling if meeting is not ready
-      const startPolling = () => {
-        if (meeting && meeting.status !== 'ready') {
-          console.log('Starting polling for meeting status...');
-          pollingIntervalRef.current = setInterval(() => {
-            loadMeeting();
-          }, 5000); // Poll every 5 seconds
-        }
-      };
-
-      // Stop polling
-      const stopPolling = () => {
-        if (pollingIntervalRef.current) {
-          console.log('Stopping polling for meeting status');
-          clearInterval(pollingIntervalRef.current);
-          pollingIntervalRef.current = null;
-        }
-      };
-
-      // Start polling if needed
-      startPolling();
-
-      // Cleanup on unmount or when screen loses focus
-      return () => {
-        stopPolling();
-      };
-    }, [meeting, loadMeeting])
-  );
-
-  // Stop polling once meeting is ready
+  // Subscribe to realtime updates for this meeting
   useEffect(() => {
-    if (meeting && meeting.status === 'ready' && pollingIntervalRef.current) {
-      console.log('Meeting is ready, stopping polling');
-      clearInterval(pollingIntervalRef.current);
-      pollingIntervalRef.current = null;
+    if (!id) return;
+
+    // Avoid duplicate subscriptions
+    if (channelRef.current) {
+      console.log('Realtime channel already active');
+      return;
     }
-  }, [meeting]);
+
+    console.log(`Subscribing to realtime updates for meeting ${id}`);
+
+    const channel = supabase
+      .channel(`meeting-${id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'meetings',
+          filter: `id=eq.${id}`,
+        },
+        (payload) => {
+          console.log('Realtime update received:', payload);
+          if (payload.new) {
+            setMeeting(payload.new as Meeting);
+            setErrorMessage(null);
+          }
+        }
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log('Realtime subscription active');
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.error('Realtime subscription failed:', status);
+        }
+      });
+
+    channelRef.current = channel;
+
+    // Cleanup on unmount
+    return () => {
+      if (channelRef.current) {
+        console.log('Unsubscribing from realtime updates');
+        supabase.removeChannel(channelRef.current);
+        channelRef.current = null;
+      }
+    };
+  }, [id]);
 
   if (loading) {
     return (

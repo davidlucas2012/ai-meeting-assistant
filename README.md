@@ -412,6 +412,38 @@ The app creates a notification channel with these settings:
 
 Users can customize notification behavior in Android Settings > Apps > AI Meeting Assistant > Notifications.
 
+## Realtime Updates
+
+The app uses **Supabase Realtime** to provide instant status updates without polling. When the backend finishes processing a meeting and updates the database row to `status: 'ready'`, the change is instantly propagated to connected clients.
+
+### How It Works
+
+**Meeting Detail Screen**:
+- Subscribes to `postgres_changes` events for the specific meeting row
+- Updates UI instantly when backend changes meeting status
+- No polling required - updates are pushed from the server
+- Subscription automatically cleaned up on unmount
+
+**Meetings List Screen**:
+- Subscribes to updates for all meetings owned by the current user
+- Automatically updates meeting status badges in the list
+- Works alongside AppState refresh for foreground transitions
+
+### Implementation Details
+
+- Uses Supabase Realtime `postgres_changes` to listen for database row updates
+- Filter: `id=eq.{meetingId}` for detail screen, `user_id=eq.{userId}` for list screen
+- Channel cleanup prevents memory leaks and duplicate subscriptions
+- Error logging for subscription failures (does not crash UI)
+- Realtime updates complement (not replace) AppState refresh and pull-to-refresh
+
+### Benefits Over Polling
+
+- **Instant updates**: No 5-second delay waiting for next poll
+- **Reduced network usage**: No repeated requests every few seconds
+- **Lower battery consumption**: Server pushes updates only when they occur
+- **Scalable**: Server load doesn't increase with number of connected clients waiting for updates
+
 ## Project Structure
 
 ```
@@ -548,9 +580,9 @@ If the app crashes during upload:
 
 The app implements several strategies to ensure reliable operation and automatic state synchronization:
 
-**AppState Auto-Refresh**: When the app transitions from background to active, the meetings list automatically refreshes to display updated meeting statuses. This ensures users see the latest processing results without manual intervention. Includes a 500ms debounce to prevent duplicate refreshes.
+**Realtime Status Updates**: Meeting status changes are instantly propagated via Supabase Realtime subscriptions. When the backend updates a meeting to "ready", connected clients receive the update immediately without polling. Subscriptions are automatically cleaned up on unmount to prevent memory leaks.
 
-**Status Polling**: On the meeting detail screen, if a meeting status is not "ready", the app polls the database every 5 seconds to check for updates. Polling automatically stops once the meeting reaches "ready" status or when the screen loses focus. This provides near-real-time status updates without requiring push notifications for intermediate states.
+**AppState Auto-Refresh**: When the app transitions from background to active, the meetings list automatically refreshes to display updated meeting statuses. This ensures users see the latest data after returning to the app. Includes a 500ms debounce to prevent duplicate refreshes.
 
 **Upload Locking**: An in-memory Set tracks active uploads by job ID to prevent duplicate submission. The lock is released in a finally block to ensure cleanup even on error.
 
