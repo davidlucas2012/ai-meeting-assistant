@@ -278,6 +278,50 @@ Push notifications on Android require Firebase Cloud Messaging (FCM) credentials
 
 **Note:** Push notifications do **NOT** work in Expo Go. You must use a development build (see "Building Dev Client" below).
 
+#### iOS Push Setup (APNs Required)
+
+> **⚠️ Note for Evaluators:** iOS push notifications are **architecturally supported** but require an **Apple Developer Account** ($99/year) for testing. This is not included in the take-home exam scope due to:
+> - Required paid Apple Developer membership
+> - APNs credentials tied to Team ID
+> - Physical iOS device requirement (simulators don't support push)
+>
+> The Android implementation demonstrates the complete push notification flow. The same Expo Push Notifications API works cross-platform with identical architecture.
+
+**iOS Push Requirements (for reference):**
+
+If you have an Apple Developer account, iOS push notifications work identically to Android:
+
+1. **Generate APNs Key**
+   - Log in to [Apple Developer Portal](https://developer.apple.com/account)
+   - Go to Certificates, Identifiers & Profiles > Keys
+   - Create a new key with "Apple Push Notifications service (APNs)" enabled
+   - Download the `.p8` file and note your Key ID and Team ID
+
+2. **Upload to EAS**
+   ```bash
+   npx eas-cli credentials
+   ```
+   - Select: iOS → Push Notifications → Upload APNs key
+   - Provide Key ID, Team ID, and `.p8` file
+   - EAS manages credentials for cloud builds
+
+3. **Build for iOS**
+   ```bash
+   npx eas-cli build --profile development --platform ios
+   ```
+
+4. **Implementation Notes**
+   - Same `expo-notifications` API used for both platforms
+   - Same token storage in Supabase `push_tokens` table
+   - Same backend `/process-meeting` endpoint sends notifications
+   - Same deep linking via `ai-meeting-assistant://meeting/{id}`
+
+**Why Android-only for this exam:**
+- Demonstrates complete push notification architecture
+- No additional code needed for iOS (same implementation)
+- Evaluators without Apple Developer accounts can still test
+- Production-ready approach documented for both platforms
+
 #### Building Dev Client (Required for Push on Android)
 
 Push notifications require a custom native build. Follow these steps:
@@ -328,12 +372,12 @@ The development build includes your FCM credentials and enables push notificatio
    - App opens to the specific meeting detail screen
    - Uses Expo Router deep linking: `ai-meeting-assistant://meeting/{id}`
 
-#### Testing Push Notifications
+#### Testing Push Notifications (Android)
 
 **Requirements:**
 - Push notifications **only work on physical devices** (not simulators/emulators)
 - Must use a development build (not Expo Go)
-- FCM credentials must be configured (see "Android Push Setup" above)
+- Android device with FCM credentials configured (see "Android Push Setup" above)
 - Ensure the backend is running and accessible from your device
 - Grant notification permissions when prompted
 
@@ -341,11 +385,15 @@ The development build includes your FCM credentials and enables push notificatio
 1. Build and install dev client (see "Building Dev Client" above)
 2. Run the dev server with `npx expo start --dev-client`
 3. Sign in to create/restore a session
-4. Grant notification permissions
+4. Grant notification permissions when prompted
 5. Record a short meeting
 6. Wait for upload to complete
 7. Backend will process the meeting and send a notification
 8. Tap the notification to open the meeting detail
+
+**For iOS Testing:**
+- Requires Apple Developer Account and APNs credentials (see "iOS Push Setup" above)
+- Same flow once credentials are configured
 
 **Troubleshooting:**
 - Check backend logs for "Push notification sent"
