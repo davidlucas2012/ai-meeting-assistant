@@ -110,38 +110,39 @@ export async function uploadAudio(
   audioPath: string
 ): Promise<void> {
   try {
-    // Read local file as base64
-    const base64 = await FileSystem.readAsStringAsync(localUri, {
-      encoding: 'base64',
+    // Get Supabase project URL and auth token
+    const session = await supabase.auth.getSession();
+    if (!session.data.session) {
+      throw new Error('Not authenticated');
+    }
+
+    const projectUrl = supabase.storage.from('meeting-audio').getPublicUrl('').data.publicUrl.split('/object/public/')[0];
+    const uploadUrl = `${projectUrl}/object/meeting-audio/${audioPath}`;
+
+    console.log('[Upload] Using native background upload to:', uploadUrl);
+
+    // Use FileSystem.uploadAsync for native background upload
+    // This continues even when the app is backgrounded!
+    const uploadResult = await FileSystem.uploadAsync(uploadUrl, localUri, {
+      httpMethod: 'POST',
+      uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+      fieldName: 'file',
+      headers: {
+        'Authorization': `Bearer ${session.data.session.access_token}`,
+        'Content-Type': 'audio/m4a',
+      },
     });
 
-    // Convert base64 to binary
-    const byteCharacters = atob(base64);
-    const byteNumbers = new Array(byteCharacters.length);
-    for (let i = 0; i < byteCharacters.length; i++) {
-      byteNumbers[i] = byteCharacters.charCodeAt(i);
+    console.log('[Upload] Upload result status:', uploadResult.status);
+
+    if (uploadResult.status !== 200) {
+      throw new Error(`Upload failed with status ${uploadResult.status}: ${uploadResult.body}`);
     }
-    const byteArray = new Uint8Array(byteNumbers);
 
-    // Upload to Supabase Storage
-    const { error: uploadError } = await supabase.storage
-      .from('meeting-audio')
-      .upload(audioPath, byteArray, {
-        contentType: 'audio/m4a',
-        upsert: false,
-      });
-
-    if (uploadError) {
-      // Update meeting status to upload_failed
-      await supabase
-        .from('meetings')
-        .update({ status: 'upload_failed' as MeetingStatus })
-        .eq('id', meetingId);
-
-      throw new Error(`Failed to upload audio: ${uploadError.message}`);
-    }
+    console.log('[Upload] Upload completed successfully');
   } catch (error) {
-    // Update meeting status to upload_failed if not already done
+    console.error('[Upload] Upload failed:', error);
+    // Update meeting status to upload_failed
     await supabase
       .from('meetings')
       .update({ status: 'upload_failed' as MeetingStatus })

@@ -18,6 +18,10 @@ import {
   upsertPushToken,
 } from '@/services/notificationsService';
 import * as QueueService from '@/services/queueService';
+import {
+  registerBackgroundTask,
+  unregisterBackgroundTask,
+} from '@/services/backgroundTaskService';
 
 // Check if running in Expo Go
 const isExpoGo = Constants.executionEnvironment === 'storeClient';
@@ -147,16 +151,18 @@ function RootLayoutNav() {
     }
   }, [session, loading]);
 
-  // Start queue loop when session is available
+  // Start queue loop and register background task when session is available
   useEffect(() => {
     if (session?.user && !loading) {
-      console.log('Starting queue loop...');
+      console.log('Starting queue loop and registering background task...');
       QueueService.cleanupOldJobs().catch(console.error);
       QueueService.startQueueLoop();
+      registerBackgroundTask().catch(console.error);
 
       return () => {
-        console.log('Stopping queue loop...');
+        console.log('Stopping queue loop and unregistering background task...');
         QueueService.stopQueueLoop();
+        unregisterBackgroundTask().catch(console.error);
       };
     }
   }, [session, loading]);
@@ -168,7 +174,8 @@ function RootLayoutNav() {
     const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
       if (appStateRef.current.match(/inactive|background/) && nextAppState === 'active') {
         if (session?.user) {
-          console.log('App foregrounded, triggering queue...');
+          console.log('App foregrounded, resetting queue lock and triggering queue...');
+          QueueService.resetQueueLock(); // Reset any stuck locks from background suspension
           QueueService.runQueueOnce().catch(console.error);
         }
       }

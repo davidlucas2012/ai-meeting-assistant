@@ -84,9 +84,9 @@ export default function RecordScreen() {
           result.durationMillis
         );
 
-        setSavedMessage('Upload queued!');
+        setSavedMessage('Processing - safe to minimize!');
 
-        // Clear the message after 1.5 seconds, then navigate
+        // Navigate after brief delay to show message
         setTimeout(() => {
           setSavedMessage('');
           setRecordState('idle');

@@ -1,5 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
+import {
+  showUploadNotification,
+  updateUploadNotification,
+  dismissUploadNotification,
+} from './uploadNotificationService';
 
 // Configuration constants
 const MAX_ATTEMPTS = 5;
@@ -31,6 +36,17 @@ export interface UploadJob {
 let isRunning = false;
 let pollingInterval: ReturnType<typeof setInterval> | null = null;
 const activeUploads = new Set<string>();
+
+/**
+ * Reset the global lock - called when app resumes from background
+ * to recover from suspended state
+ */
+export function resetQueueLock(): void {
+  if (isRunning) {
+    console.log('[Queue] Resetting stuck lock from background suspension');
+    isRunning = false;
+  }
+}
 
 /**
  * Calculate exponential backoff delay in milliseconds
@@ -183,7 +199,8 @@ export async function enqueueUploadAndProcess(
 
   console.log('Job enqueued:', { jobId, meetingId });
 
-  // Trigger queue processing (don't await)
+  // Trigger queue processing immediately (don't await, let it run in background)
+  // Remove setImmediate to start processing synchronously
   runQueueOnce().catch((error) => {
     console.error('Failed to trigger queue:', error);
   });
@@ -195,13 +212,18 @@ export async function enqueueUploadAndProcess(
  * Process a single job (upload + request processing)
  */
 async function processJob(job: UploadJob): Promise<void> {
-  console.log('Processing job:', job.id);
+  console.log('[Queue] Processing job:', job.id);
+
+  // Show persistent notification to keep app alive in background (Android)
+  await showUploadNotification(job.meetingId);
 
   // Import meetingService functions
+  console.log('[Queue] Loading services...');
   const { createMeetingRow, uploadAudio, requestProcessing } = await import('./meetingService');
   const { supabase } = await import('@/lib/supabase');
 
   // Get current session
+  console.log('[Queue] Getting session...');
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.user) {
     throw new Error('User not authenticated. Please sign in again.');
@@ -223,18 +245,25 @@ async function processJob(job: UploadJob): Promise<void> {
 
   // Step 1: Update meeting status to uploading
   // (Meeting row was already created when job was enqueued)
+  console.log('[Queue] Updating meeting status to uploading...');
   await supabase
     .from('meetings')
     .update({ status: 'uploading' as const })
     .eq('id', job.meetingId);
 
   // Step 2: Upload audio
+  console.log('[Queue] Starting audio upload...');
+  await updateUploadNotification('Uploading audio...');
   await uploadAudio(job.meetingId, job.localUri, job.audioPath);
+  console.log('[Queue] Audio upload completed');
 
   // Step 3: Request processing
+  console.log('[Queue] Requesting processing...');
+  await updateUploadNotification('Processing recording...');
   await requestProcessing(job.meetingId, job.audioPath);
 
-  console.log('Job completed successfully:', job.id);
+  console.log('[Queue] Job completed successfully:', job.id);
+  await dismissUploadNotification();
 }
 
 /**
@@ -244,11 +273,12 @@ async function processJob(job: UploadJob): Promise<void> {
 export async function runQueueOnce(): Promise<void> {
   // Check global lock
   if (isRunning) {
-    console.log('Queue already running, skipping');
+    console.log('[Queue] Queue already running, skipping');
     return;
   }
 
   // Lock the queue
+  console.log('[Queue] Acquiring lock');
   isRunning = true;
 
   try {
@@ -286,7 +316,9 @@ export async function runQueueOnce(): Promise<void> {
         status: 'completed',
       });
     } catch (error) {
-      // Job failed
+      // Job failed - dismiss notification
+      await dismissUploadNotification();
+
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       console.error('Job failed:', readyJob.id, errorMessage);
 
