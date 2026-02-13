@@ -150,6 +150,17 @@ export async function enqueueUploadAndProcess(
   const userId = session.user.id;
   const audioPath = `${userId}/${meetingId}.m4a`;
 
+  // Create meeting row immediately so it appears in the list right away
+  await supabase.from('meetings').insert({
+    id: meetingId,
+    user_id: userId,
+    audio_path: audioPath,
+    status: 'recorded', // Initial status before upload starts
+    duration_millis: durationMillis,
+  });
+
+  console.log('Meeting row created immediately:', meetingId);
+
   // Create job
   const job: UploadJob = {
     id: jobId,
@@ -210,8 +221,12 @@ async function processJob(job: UploadJob): Promise<void> {
     );
   }
 
-  // Step 1: Create meeting row
-  await createMeetingRow(job.meetingId, session.user.id, job.audioPath, job.durationMillis);
+  // Step 1: Update meeting status to uploading
+  // (Meeting row was already created when job was enqueued)
+  await supabase
+    .from('meetings')
+    .update({ status: 'uploading' as const })
+    .eq('id', job.meetingId);
 
   // Step 2: Upload audio
   await uploadAudio(job.meetingId, job.localUri, job.audioPath);

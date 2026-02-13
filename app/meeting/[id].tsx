@@ -1,17 +1,20 @@
-import { StyleSheet, Text, View, ScrollView, ActivityIndicator, TouchableOpacity, Alert } from 'react-native';
+import { StyleSheet, Text, View, ScrollView, ActivityIndicator, TouchableOpacity, Alert, AppState } from 'react-native';
+import type { AppStateStatus } from 'react-native';
 import { useLocalSearchParams, Stack } from 'expo-router';
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import * as MeetingService from '@/services/meetingService';
 import type { Meeting } from '@/services/meetingService';
 import * as QueueService from '@/services/queueService';
 import StatusBadge from '@/components/StatusBadge';
 import InlineError from '@/components/InlineError';
-import { supabase } from '@/lib/supabase';
-import type { RealtimeChannel } from '@supabase/supabase-js';
 import * as API from '@/lib/api';
+import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription';
 
 export default function MeetingDetailScreen() {
-  const { id } = useLocalSearchParams();
+  const { id: rawId } = useLocalSearchParams();
+  // Handle case where id might be an array or undefined
+  const id = Array.isArray(rawId) ? rawId[0] : rawId;
+
   const [meeting, setMeeting] = useState<Meeting | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
@@ -19,7 +22,7 @@ export default function MeetingDetailScreen() {
   const [jobError, setJobError] = useState<string | null>(null);
   const [diarizing, setDiarizing] = useState(false);
   const [showDiarized, setShowDiarized] = useState(false);
-  const channelRef = useRef<RealtimeChannel | null>(null);
+  const appState = useRef<AppStateStatus>(AppState.currentState);
 
   const loadMeeting = useCallback(async () => {
     try {
@@ -52,55 +55,41 @@ export default function MeetingDetailScreen() {
     loadMeeting();
   }, [loadMeeting]);
 
-  // Subscribe to realtime updates for this meeting
+  // Reload meeting when app comes back to foreground
+  // This ensures we have the latest data even if realtime connection dropped
   useEffect(() => {
-    if (!id) return;
-
-    // Avoid duplicate subscriptions
-    if (channelRef.current) {
-      console.log('Realtime channel already active');
-      return;
-    }
-
-    console.log(`Subscribing to realtime updates for meeting ${id}`);
-
-    const channel = supabase
-      .channel(`meeting-${id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'meetings',
-          filter: `id=eq.${id}`,
-        },
-        (payload) => {
-          console.log('Realtime update received:', payload);
-          if (payload.new) {
-            setMeeting(payload.new as Meeting);
-            setErrorMessage(null);
-          }
-        }
-      )
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          console.log('Realtime subscription active');
-        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          console.error('Realtime subscription failed:', status);
-        }
-      });
-
-    channelRef.current = channel;
-
-    // Cleanup on unmount
-    return () => {
-      if (channelRef.current) {
-        console.log('Unsubscribing from realtime updates');
-        supabase.removeChannel(channelRef.current);
-        channelRef.current = null;
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      // App coming to foreground - refresh meeting data
+      if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
+        console.log('App came to foreground, refreshing meeting data...');
+        loadMeeting();
       }
+      appState.current = nextAppState;
+    });
+
+    return () => {
+      subscription.remove();
     };
-  }, [id]);
+  }, [loadMeeting]);
+
+  // Subscribe to realtime updates for this meeting
+  // Keep subscription active even in background to receive processing updates
+  useRealtimeSubscription<Meeting>({
+    table: 'meetings',
+    filter: id ? `id=eq.${id}` : undefined,
+    events: {
+      event: 'UPDATE',
+      handler: (payload) => {
+        console.log('Realtime update received:', payload);
+        if (payload.new) {
+          setMeeting(payload.new as Meeting);
+          setErrorMessage(null);
+        }
+      },
+    },
+    handleAppState: false, // Keep subscription active in background for processing updates
+    debug: true,
+  });
 
   const handleDiarize = async () => {
     if (!meeting) return;

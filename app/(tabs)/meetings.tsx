@@ -1,22 +1,19 @@
-import { StyleSheet, Text, View, TouchableOpacity, FlatList, ActivityIndicator, RefreshControl, AppState } from 'react-native';
-import type { AppStateStatus } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, FlatList, ActivityIndicator, RefreshControl } from 'react-native';
 import { Link } from 'expo-router';
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import * as MeetingService from '@/services/meetingService';
 import type { MeetingListItem } from '@/services/meetingService';
 import * as QueueService from '@/services/queueService';
 import { supabase, signOut } from '@/lib/supabase';
-import type { RealtimeChannel } from '@supabase/supabase-js';
 import StatusBadge from '@/components/StatusBadge';
+import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription';
 
 export default function MeetingsScreen() {
   const [meetings, setMeetings] = useState<MeetingListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [jobErrors, setJobErrors] = useState<Record<string, string>>({});
-  const appState = useRef<AppStateStatus>(AppState.currentState);
-  const lastRefreshTime = useRef<number>(Date.now());
-  const channelRef = useRef<RealtimeChannel | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
 
   const loadMeetings = useCallback(async () => {
     try {
@@ -32,8 +29,6 @@ export default function MeetingsScreen() {
         }
       });
       setJobErrors(errors);
-
-      lastRefreshTime.current = Date.now();
     } catch (error) {
       console.error('Failed to load meetings:', error);
     } finally {
@@ -45,122 +40,63 @@ export default function MeetingsScreen() {
     loadMeetings();
   }, [loadMeetings]);
 
-  // Helper to unsubscribe from realtime
-  const unsubscribeRealtime = useCallback(() => {
-    if (channelRef.current) {
-      console.log('Unsubscribing from realtime updates');
-      supabase.removeChannel(channelRef.current);
-      channelRef.current = null;
-    }
+  // Get user ID for realtime subscription
+  useEffect(() => {
+    const getUserId = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        setUserId(user.id);
+      }
+    };
+    getUserId();
   }, []);
 
-  // Helper to subscribe to realtime
-  const subscribeRealtime = useCallback(async () => {
-    try {
-      // Clean up existing subscription first
-      unsubscribeRealtime();
-
-      // Get current user ID for filtering
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        console.log('No user found, skipping realtime subscription');
-        return;
-      }
-
-      console.log('Subscribing to realtime updates for all meetings');
-
-      const channel = supabase
-        .channel('meetings-list')
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'meetings',
-            filter: `user_id=eq.${user.id}`,
-          },
-          (payload) => {
-            console.log('Realtime INSERT received for meetings list:', payload);
-            if (payload.new) {
-              const newMeeting = payload.new as MeetingListItem;
-              setMeetings((prevMeetings) => [newMeeting, ...prevMeetings]);
-            }
+  // Subscribe to realtime updates for meetings
+  useRealtimeSubscription<MeetingListItem>({
+    table: 'meetings',
+    filter: userId ? `user_id=eq.${userId}` : undefined,
+    channelName: 'meetings-list',
+    events: [
+      {
+        event: 'INSERT',
+        handler: (payload) => {
+          console.log('Realtime INSERT received for meetings list:', payload);
+          if (payload.new) {
+            const newMeeting = payload.new as MeetingListItem;
+            setMeetings((prevMeetings) => [newMeeting, ...prevMeetings]);
           }
-        )
-        .on(
-          'postgres_changes',
-          {
-            event: 'UPDATE',
-            schema: 'public',
-            table: 'meetings',
-            filter: `user_id=eq.${user.id}`,
-          },
-          (payload) => {
-            console.log('Realtime UPDATE received for meetings list:', payload);
-            if (payload.new) {
-              const updatedMeeting = payload.new as MeetingListItem;
-              setMeetings((prevMeetings) =>
-                prevMeetings.map((meeting) =>
+        },
+      },
+      {
+        event: 'UPDATE',
+        handler: (payload) => {
+          console.log('Realtime UPDATE received for meetings list:', payload);
+          if (payload.new) {
+            const updatedMeeting = payload.new as MeetingListItem;
+            console.log(`Updating meeting ${updatedMeeting.id} status to ${updatedMeeting.status}`);
+            setMeetings((prevMeetings) => {
+              // Check if meeting exists in the list
+              const exists = prevMeetings.some(m => m.id === updatedMeeting.id);
+
+              if (exists) {
+                // Update existing meeting
+                const updated = prevMeetings.map((meeting) =>
                   meeting.id === updatedMeeting.id ? updatedMeeting : meeting
-                )
-              );
-            }
+                );
+                console.log('Meeting updated in list');
+                return updated;
+              } else {
+                // Meeting not in list yet (missed INSERT?), add it
+                console.log('Meeting not found in list, adding it');
+                return [updatedMeeting, ...prevMeetings];
+              }
+            });
           }
-        )
-        .subscribe((status) => {
-          if (status === 'SUBSCRIBED') {
-            console.log('Realtime subscription active for meetings list (INSERT + UPDATE)');
-          } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-            console.error('Realtime subscription failed:', status);
-          }
-        });
-
-      channelRef.current = channel;
-    } catch (error) {
-      console.error('Failed to setup realtime subscription:', error);
-    }
-  }, [unsubscribeRealtime]);
-
-  // AppState listener: unsubscribe on background, resubscribe on foreground
-  useEffect(() => {
-    const subscription = AppState.addEventListener('change', (nextAppState) => {
-      // App going to background - unsubscribe to avoid connection errors
-      if (appState.current === 'active' && nextAppState.match(/inactive|background/)) {
-        console.log('App going to background, unsubscribing from realtime');
-        unsubscribeRealtime();
-      }
-
-      // App coming to foreground - resubscribe and refresh data
-      if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
-        console.log('App came to foreground, refreshing meetings and resubscribing...');
-
-        // Debounce: only refresh if it's been more than 500ms since last refresh
-        const timeSinceLastRefresh = Date.now() - lastRefreshTime.current;
-        if (timeSinceLastRefresh > 500) {
-          loadMeetings();
-        }
-
-        // Resubscribe to realtime
-        subscribeRealtime();
-      }
-
-      appState.current = nextAppState;
-    });
-
-    return () => {
-      subscription.remove();
-    };
-  }, [loadMeetings, subscribeRealtime, unsubscribeRealtime]);
-
-  // Subscribe to realtime updates on mount
-  useEffect(() => {
-    subscribeRealtime();
-
-    // Cleanup on unmount
-    return () => {
-      unsubscribeRealtime();
-    };
-  }, [subscribeRealtime, unsubscribeRealtime]);
+        },
+      },
+    ],
+    debug: true,
+  });
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
