@@ -254,19 +254,28 @@ Push notifications on Android require Firebase Cloud Messaging (FCM) credentials
    - Download `google-services.json`
    - Place it in the project root (same directory as `package.json`)
 
-3. **Upload FCM Service Account Key**
+3. **Upload google-services.json to EAS**
+   - Since `google-services.json` is gitignored (for security), we use EAS Secrets to provide it during builds
+   - Upload the file as a secret:
+     ```bash
+     npx eas-cli secret:create --scope project --name GOOGLE_SERVICES_JSON --type file --value google-services.json
+     ```
+   - The build hook (`eas-build-pre-install.sh`) automatically writes this secret to `google-services.json` during EAS builds
+
+4. **Upload FCM Service Account Key** (Optional - for managed credentials)
    - In Firebase Console, go to Project Settings > Service Accounts
    - Click "Generate new private key" and download the JSON file
    - Upload to EAS:
      ```bash
-     eas credentials
+     npx eas-cli credentials
      ```
    - Select: Android → Push Notifications → Upload FCM service account key → Select the downloaded JSON
 
-4. **Verify Configuration**
-   - Ensure `google-services.json` is in project root
+5. **Verify Configuration**
+   - Ensure `google-services.json` is in project root (for local development)
    - Check `app.json` has: `"android.googleServicesFile": "./google-services.json"`
    - File is gitignored to prevent committing credentials
+   - EAS secret `GOOGLE_SERVICES_JSON` is configured for cloud builds
 
 **Note:** Push notifications do **NOT** work in Expo Go. You must use a development build (see "Building Dev Client" below).
 
