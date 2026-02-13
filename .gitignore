@@ -55,4 +55,7 @@ build/
 /ios
 /android
 
+# Firebase credentials
+google-services.json
+
 *.pdf

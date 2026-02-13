@@ -134,7 +134,10 @@ export async function registerForPushNotifications(): Promise<string | null> {
       return null;
     }
 
-    console.error('Error registering for push notifications:', error);
+    console.error(
+      'Push token generation failed. Check FCM credentials and rebuild.',
+      error
+    );
     return null;
   }
 }

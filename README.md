@@ -240,6 +240,67 @@ EXPO_PUBLIC_BACKEND_URL=http://192.168.1.100:8000
 
 The app uses Expo Push Notifications to alert users when their meeting transcript is ready.
 
+#### Android Push Setup (FCM Required)
+
+Push notifications on Android require Firebase Cloud Messaging (FCM) credentials. Follow these steps:
+
+1. **Create Firebase Project**
+   - Go to [https://console.firebase.google.com](https://console.firebase.google.com)
+   - Create a new project (or use existing)
+   - Click "Add app" and select Android
+
+2. **Register Android App**
+   - Enter the package name: `com.anonymous.aimeetingtemp` (from app.json)
+   - Download `google-services.json`
+   - Place it in the project root (same directory as `package.json`)
+
+3. **Upload FCM Service Account Key**
+   - In Firebase Console, go to Project Settings > Service Accounts
+   - Click "Generate new private key" and download the JSON file
+   - Upload to EAS:
+     ```bash
+     eas credentials
+     ```
+   - Select: Android → Push Notifications → Upload FCM service account key → Select the downloaded JSON
+
+4. **Verify Configuration**
+   - Ensure `google-services.json` is in project root
+   - Check `app.json` has: `"android.googleServicesFile": "./google-services.json"`
+   - File is gitignored to prevent committing credentials
+
+**Note:** Push notifications do **NOT** work in Expo Go. You must use a development build (see "Building Dev Client" below).
+
+#### Building Dev Client (Required for Push on Android)
+
+Push notifications require a custom native build. Follow these steps:
+
+1. **Install EAS CLI**:
+   ```bash
+   npm install -g eas-cli
+   ```
+
+2. **Login to EAS**:
+   ```bash
+   eas login
+   ```
+
+3. **Build Development Client**:
+   ```bash
+   eas build --profile development --platform android
+   ```
+
+4. **Install on Device**:
+   - Download the `.apk` from the EAS build URL
+   - Install on your Android device
+   - Or use `eas build:run` to install directly
+
+5. **Run Dev Server**:
+   ```bash
+   npx expo start --dev-client
+   ```
+
+The development build includes your FCM credentials and enables push notifications.
+
 #### How It Works
 
 1. **Registration**: When a user signs in, the app automatically:
@@ -263,27 +324,27 @@ The app uses Expo Push Notifications to alert users when their meeting transcrip
 
 **Requirements:**
 - Push notifications **only work on physical devices** (not simulators/emulators)
+- Must use a development build (not Expo Go)
+- FCM credentials must be configured (see "Android Push Setup" above)
 - Ensure the backend is running and accessible from your device
 - Grant notification permissions when prompted
 
 **Testing Steps:**
-1. Run the app on a physical device
-2. Sign in to create/restore a session
-3. Grant notification permissions
-4. Record a short meeting
-5. Wait for upload to complete
-6. Backend will process the meeting and send a notification
-7. Tap the notification to open the meeting detail
+1. Build and install dev client (see "Building Dev Client" above)
+2. Run the dev server with `npx expo start --dev-client`
+3. Sign in to create/restore a session
+4. Grant notification permissions
+5. Record a short meeting
+6. Wait for upload to complete
+7. Backend will process the meeting and send a notification
+8. Tap the notification to open the meeting detail
 
 **Troubleshooting:**
 - Check backend logs for "Push notification sent"
 - Verify push token is stored in Supabase (`push_tokens` table)
 - Ensure `EXPO_PUBLIC_BACKEND_URL` points to accessible IP (not `localhost` for physical devices)
 - Check app foreground/background notification settings
-- Android requires Firebase FCM setup: place `google-services.json` in the project root and set `expo.android.googleServicesFile` in `app.json` (see Expo FCM guide)
-- Created firebase project and added android to setup googleServicesFile on `app.json`
-
-
+- **Android: If push token generation fails**, check console for "Push token generation failed. Check FCM credentials and rebuild."
 
 #### Notification Channel (Android)
 
