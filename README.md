@@ -400,7 +400,73 @@ The development build includes your FCM credentials and enables push notificatio
 - Verify push token is stored in Supabase (`push_tokens` table)
 - Ensure `EXPO_PUBLIC_BACKEND_URL` points to accessible IP (not `localhost` for physical devices)
 - Check app foreground/background notification settings
-- **Android: If push token generation fails**, check console for "Push token generation failed. Check FCM credentials and rebuild."
+
+#### Android Push Troubleshooting (FIS_AUTH_ERROR)
+
+If you encounter `FIS_AUTH_ERROR` when generating push tokens on Android, this indicates a Firebase Installation Service authentication failure. Here's what was investigated and configured:
+
+**Root Cause Identified:**
+
+The native Android build wasn't processing `google-services.json` properly, preventing Firebase from authenticating. This requires two critical configurations:
+
+1. **Google Services Gradle Plugin** - Processes `google-services.json` during build
+2. **SHA Certificate Fingerprints** - Firebase validates the app's signing certificate
+
+**Configuration Applied:**
+
+**1. Google Services Gradle Plugin** (already configured in this project):
+
+```gradle
+// android/build.gradle
+dependencies {
+  classpath 'com.google.gms:google-services:4.4.1'
+  // ... other dependencies
+}
+
+// android/app/build.gradle (at bottom of file)
+apply plugin: 'com.google.gms.google-services'
+```
+
+**2. SHA Certificate Fingerprints** (configured in Firebase Console):
+
+For EAS development builds, the SHA fingerprints are:
+- **SHA-1:** `9c:b5:ab:b4:96:06:15:c1:dd:5b:ba:93:ea:cf:18:47:da:ad:e9:b7`
+- **SHA-256:** `2b:97:69:f0:75:07:3c:e2:3e:21:ee:4d:90:4a:93:6d:c3:f5:1a:26:74:16:aa:fd:f6:55:26:46:cd:0e:ab:ef`
+
+These must be added to Firebase Console → Project Settings → Your apps → ai-meeting-assistant → SHA certificate fingerprints.
+
+**How to Get SHA Fingerprints from EAS:**
+
+```bash
+# View your EAS keystore credentials
+npx eas-cli credentials --platform android
+
+# Or visit EAS dashboard
+https://expo.dev/accounts/[your-account]/projects/ai-meeting-assistant/credentials/android
+```
+
+**Important Notes:**
+
+- **Firebase Propagation:** After adding SHA fingerprints, Firebase can take **1-2 hours** to propagate changes globally
+- **Committed android/ folder:** This project includes the `android/` folder in version control (not typically recommended) to ensure the Google Services plugin configuration persists through EAS builds
+- **Production Approach:** In production, use Expo config plugins to apply Google Services configuration during prebuild, avoiding the need to commit native folders
+
+**Verification Steps:**
+
+1. Confirm `google-services.json` is in `android/app/` directory
+2. Verify SHA fingerprints match your EAS keystore in Firebase Console
+3. Check for Firebase installation files on device:
+   ```bash
+   adb shell "run-as com.anonymous.aimeetingtemp ls -la files" | grep PersistedInstallation
+   ```
+4. If file exists, Firebase IS configured; issue is likely SHA fingerprint propagation delay
+
+**If Issue Persists:**
+
+- Wait 1-2 hours for Firebase propagation
+- Try removing and re-adding SHA fingerprints in Firebase Console
+- Verify package name matches exactly: `com.anonymous.aimeetingtemp`
+- Ensure Firebase APIs are enabled (Firebase Installations API, FCM)
 
 #### Notification Channel (Android)
 
