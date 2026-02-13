@@ -11,6 +11,7 @@ A mobile app for recording in-person meetings with AI-generated transcripts and 
 ### Prerequisites
 - Node.js 18+, Python 3.9+, Expo CLI
 - Supabase account (free tier)
+- OpenAI account with API key ([platform.openai.com](https://platform.openai.com/api-keys))
 - Android device for push notifications (or iOS with Apple Developer account)
 
 ### 1. Mobile App
@@ -50,7 +51,9 @@ pip install -r requirements.txt
 
 # Configure environment
 cp .env.example .env
-# Add Supabase service_role key to backend/.env
+# Add to backend/.env:
+#   - SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY
+#   - OPENAI_API_KEY (from platform.openai.com/api-keys)
 
 # Run backend
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
@@ -90,7 +93,7 @@ npx expo start --dev-client
 
 **State Management:** React hooks (useState, useRef, useEffect) for local component state. Supabase auth listener in root layout manages global authentication state. No Redux/MobX needed for this scope—keeps codebase simple and reduces boilerplate.
 
-**Backend:** FastAPI (Python) for async support and auto-generated API docs at `/docs`. Separation from mobile app allows independent scaling. `/process-meeting` endpoint downloads audio, generates mock transcript/summary, updates database, and sends push notification.
+**Backend:** FastAPI (Python) for async support and auto-generated API docs at `/docs`. Separation from mobile app allows independent scaling. `/process-meeting` endpoint downloads audio, transcribes with OpenAI Whisper, generates structured summary with GPT-4o-mini (key points + action items), updates database, and sends push notification.
 
 **Database & Auth:** Supabase for PostgreSQL database, email/password authentication, and file storage. Row Level Security (RLS) ensures users can only access their own data. Session persistence via expo-secure-store on native platforms.
 
@@ -99,7 +102,8 @@ npx expo start --dev-client
 **Push Notifications:** Expo Push Notifications with Firebase Cloud Messaging (Android) and APNs (iOS). Push tokens stored in Supabase with RLS. Deep linking (`ai-meeting-assistant://meeting/{id}`) opens specific meeting when notification is tapped. Backend sends notification after processing completes.
 
 **Trade-offs Made:**
-- **Mock transcription** instead of real AI (OpenAI Whisper) to focus on architecture
+- **Synchronous AI processing** instead of background queue (Celery/RQ) to keep MVP scope simple
+- **Transcript truncation at 20K chars** to avoid token limits (handles ~2 hour meetings)
 - **Firebase credentials committed** for evaluator convenience (would be in EAS Secrets in production)
 - **Sequential queue processing** (one job at a time) instead of parallel to simplify locking
 - **50MB file size limit** matches Supabase free tier (≈45 min recording)
@@ -111,16 +115,17 @@ npx expo start --dev-client
 
 ## What Would Be Improved With More Time
 
-**Real AI Integration:**
-- OpenAI Whisper for transcription (or AssemblyAI/Deepgram)
-- GPT-4 for intelligent summarization with action items
-- Speaker diarization for multi-person meetings
+**AI Enhancements:**
+- Speaker diarization for multi-person meetings ("John: ...", "Sarah: ...")
+- Sentiment analysis and meeting insights
+- Custom prompts for domain-specific summarization (sales calls, standups, etc.)
+- Support for very long recordings (chunked transcription, streaming)
 
 **Backend Processing:**
-- Background job queue (Celery/RQ/Bull) for async processing
+- Background job queue (Celery/RQ/Bull) for async processing to prevent timeout on long recordings
 - Webhook-based status updates instead of fire-and-forget
-- Retry logic for failed transcription jobs
-- Support for longer recordings (chunked uploads, streaming)
+- More robust retry logic for failed transcription jobs with exponential backoff
+- Progress updates during processing ("Transcribing... 45%")
 
 **Recording UX:**
 - Recording time limit enforcement with visual warnings

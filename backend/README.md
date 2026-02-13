@@ -1,6 +1,6 @@
 # Backend API
 
-Python FastAPI backend for processing meeting recordings.
+Python FastAPI backend for processing meeting recordings with real AI transcription and summarization.
 
 ## Setup
 
@@ -14,6 +14,16 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```bash
 pip install -r requirements.txt
 ```
+
+3. Configure environment variables:
+```bash
+cp .env.example .env
+```
+
+Edit `.env` and add:
+- `SUPABASE_URL` - Your Supabase project URL
+- `SUPABASE_SERVICE_ROLE_KEY` - Supabase service role key (bypasses RLS)
+- `OPENAI_API_KEY` - OpenAI API key from [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
 
 ## Running
 
@@ -38,4 +48,33 @@ API documentation: `http://localhost:8000/docs`
 ## Endpoints
 
 - `GET /health` - Health check
-- `POST /process-meeting` - Process meeting audio (stub)
+- `POST /process-meeting` - Process meeting audio with OpenAI Whisper + GPT-4o-mini
+
+## AI Processing
+
+The `/process-meeting` endpoint performs:
+
+1. **Download** - Fetches audio file from Supabase Storage
+2. **Transcription** - Uses OpenAI Whisper (`whisper-1`) for speech-to-text
+3. **Analysis** - Uses GPT-4o-mini to extract:
+   - Cleaned transcript
+   - 2-3 sentence summary
+   - Key discussion points
+   - Action items
+4. **Storage** - Saves results to Supabase database
+5. **Notification** - Sends push notification when ready
+
+**Performance Safeguards:**
+- Automatic transcript truncation at 20,000 characters to avoid token limits
+- Comprehensive error handling with fallback to raw transcript
+- Detailed logging (download time, transcription time, analysis time)
+- Graceful degradation if GPT returns invalid JSON
+
+## Dependencies
+
+- `fastapi` - Modern async web framework
+- `uvicorn` - ASGI server
+- `supabase` - Database, storage, and auth client
+- `openai` - OpenAI API for Whisper + GPT
+- `requests` - HTTP client for audio download and push notifications
+- `python-dotenv` - Environment variable management
