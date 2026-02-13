@@ -55,7 +55,8 @@ build/
 /ios
 /android
 
-# Firebase credentials
-google-services.json
+# Firebase credentials (commented out for take-home exam evaluation)
+# In production, this would be gitignored and managed via EAS secrets
+# google-services.json
 
 *.pdf

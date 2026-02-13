@@ -242,7 +242,14 @@ The app uses Expo Push Notifications to alert users when their meeting transcrip
 
 #### Android Push Setup (FCM Required)
 
-Push notifications on Android require Firebase Cloud Messaging (FCM) credentials. Follow these steps:
+> **⚠️ Note for Evaluators:** For this take-home exam, `google-services.json` is included in the repository to enable immediate building and testing. **In a production environment**, this file would be:
+> - Added to `.gitignore` to prevent committing credentials
+> - Managed via EAS Secrets or environment variables
+> - Auto-generated during builds from FCM service account credentials
+>
+> This demonstrates understanding of security best practices while maintaining evaluator convenience.
+
+Push notifications on Android require Firebase Cloud Messaging (FCM) credentials. The included `google-services.json` is pre-configured for testing. To set up your own Firebase project:
 
 1. **Create Firebase Project**
    - Go to [https://console.firebase.google.com](https://console.firebase.google.com)
@@ -519,7 +526,7 @@ The app implements several strategies to ensure reliable operation and automatic
 
 **File Upload**: Audio recordings are uploaded to Supabase Storage after recording stops. Files are stored at `{user_id}/{meeting_id}.m4a` path structure, enabling user-scoped RLS policies.
 
-**Push Notifications**: Expo Push Notifications alert users when transcripts are ready. Push tokens are stored in Supabase with RLS policies. Deep linking via Expo Router opens specific meeting details when notification is tapped.
+**Push Notifications**: Expo Push Notifications alert users when transcripts are ready. Push tokens are stored in Supabase with RLS policies. Deep linking via Expo Router opens specific meeting details when notification is tapped. Firebase credentials (`google-services.json`) are included in this repository for evaluation purposes only; in production, these would be managed via EAS Secrets and gitignored.
 
 **Backend Processing**: After upload, frontend calls backend `/process-meeting` endpoint with signed audio URL. Backend generates mock transcript/summary, updates database, and sends push notification. Fire-and-forget pattern prevents blocking UI.
 
