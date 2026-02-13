@@ -120,12 +120,119 @@ https://expo.dev/accounts/[your-account]/projects/ai-meeting-assistant/credentia
    ```
 4. If file exists, Firebase IS configured; issue is likely SHA fingerprint propagation delay
 
+#### Critical: Enable Firebase Installations API
+
+**The #1 cause of FIS_AUTH_ERROR is Firebase Installations API not being enabled.**
+
+Go to [Google Cloud Console](https://console.cloud.google.com/apis/library?project=ai-meeting-assistant-db2b0) and enable:
+
+1. **Firebase Installations API** ← CRITICAL - Most common missing step
+2. **Firebase Cloud Messaging API (V1)**
+3. **Cloud Messaging** (legacy)
+
+After enabling, wait **5-10 minutes** for propagation, then rebuild:
+
+```bash
+eas build --profile development --platform android
+```
+
+**How to verify Firebase is initializing:**
+
+```bash
+# Clear app data first
+adb shell pm clear com.anonymous.aimeetingtemp
+
+# Reinstall and run the app, then check:
+adb shell "run-as com.anonymous.aimeetingtemp ls -la files" | grep PersistedInstallation
+```
+
+If `PersistedInstallation` file exists → Firebase IS working. If not → Firebase cannot initialize.
+
+#### App Check Blocking Firebase Installations (Common Issue)
+
+**If App Check is enabled with Play Integrity**, it will block development builds from initializing Firebase.
+
+**Check App Check Status:**
+1. Go to [App Check → Apps tab](https://console.firebase.google.com/project/ai-meeting-assistant-db2b0/appcheck)
+2. If your app shows "Play Integrity: Registered" → This is blocking development builds
+
+**Solution: Use Debug Token**
+1. Click on your app → "Manage debug tokens"
+2. Generate a debug token (e.g., `0C1E1DEA-CDBD-4102-8D18-5015D899DFE9`)
+3. Set it on your device:
+   ```bash
+   adb shell setprop debug.firebase.app_check.debug_secret YOUR_DEBUG_TOKEN
+   ```
+4. Restart your app:
+   ```bash
+   adb shell am force-stop com.anonymous.aimeetingtemp
+   ```
+5. Verify Firebase is working:
+   ```bash
+   adb shell "run-as com.anonymous.aimeetingtemp ls -la files" | grep PersistedInstallation
+   ```
+
+**Note:** The debug token set via `adb setprop` is temporary and will reset on device reboot. You'll need to set it again after rebooting.
+
+#### DNS/Network Blocking Firebase Domains (Critical Issue)
+
+**If you get "Firebase Installations Service is unavailable"**, your device/network might be blocking Firebase domains.
+
+**Diagnosis - Check DNS Resolution:**
+
+```bash
+adb shell "ping -c 2 firebaseinstallations.googleapis.com"
+```
+
+**Problem:** If you see `127.0.0.1` or `localhost` instead of a real Google IP:
+```
+PING firebaseinstallations.googleapis.com (127.0.0.1)  ← THIS IS WRONG
+```
+
+**Expected (correct):** Should resolve to a Google server IP:
+```
+PING firebaseinstallations.googleapis.com (142.251.220.202)  ← THIS IS CORRECT
+64 bytes from mnl07s03-in-f10.1e100.net (142.251.220.202)
+```
+
+**Common Causes:**
+1. **Private DNS with ad blocker** (e.g., AdGuard DNS, dns.adguard.com, NextDNS)
+2. **VPN or proxy** (check for VPN apps like ExpressVPN, NordVPN, Knox VPN)
+3. **Ad blocker apps** (Blokada, DNS66, AdAway)
+4. **Network-level filtering** (corporate network, Pi-hole, router DNS settings)
+
+**Solutions:**
+
+1. **Disable Private DNS** (Quickest fix):
+   - Settings → Connections → More connection settings → Private DNS → **Off**
+
+2. **Check for VPN/Proxy**:
+   ```bash
+   adb shell "pm list packages | grep -iE 'vpn|adguard|blokada|dns66'"
+   ```
+   - Disable any VPN or ad blocker apps temporarily
+
+3. **Change Device DNS to Google DNS**:
+   - Settings → Wi-Fi → Long press your network → Modify network
+   - Advanced options → IP settings → Static
+   - DNS 1: `8.8.8.8`, DNS 2: `8.8.4.4`
+
+4. **Test on mobile data** (bypasses WiFi restrictions):
+   - Turn off WiFi, use mobile data temporarily to test
+
+**After fixing DNS, verify:**
+```bash
+adb shell "ping -c 2 firebaseinstallations.googleapis.com"
+```
+
+Should now show a real IP like `142.251.220.202` instead of `127.0.0.1`.
+
 #### If Issue Persists
 
-- Wait 1-2 hours for Firebase propagation
+- Wait 1-2 hours for Firebase propagation after enabling APIs
 - Try removing and re-adding SHA fingerprints in Firebase Console
 - Verify package name matches exactly: `com.anonymous.aimeetingtemp`
-- Ensure Firebase APIs are enabled (Firebase Installations API, FCM)
+- Check [Google Cloud Console API Library](https://console.cloud.google.com/apis/library?project=ai-meeting-assistant-db2b0) to ensure all Firebase APIs are enabled
 
 ### Notification Channel (Android)
 
