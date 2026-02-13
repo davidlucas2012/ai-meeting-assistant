@@ -444,6 +444,17 @@ The app uses **Supabase Realtime** to provide instant status updates without pol
 - **Lower battery consumption**: Server pushes updates only when they occur
 - **Scalable**: Server load doesn't increase with number of connected clients waiting for updates
 
+## Architecture
+
+📐 **[See docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for comprehensive system design, including:**
+- High-level architecture overview
+- Background recording implementation
+- Upload queue and retry logic
+- Push notification flow
+- Realtime updates with Supabase
+- Design decisions and trade-offs
+- Complete sequence diagram
+
 ## Project Structure
 
 ```
@@ -469,6 +480,8 @@ The app uses **Supabase Realtime** to provide instant status updates without pol
   main.py                  - FastAPI backend with /process-meeting endpoint
   requirements.txt         - Python dependencies
   .env.example             - Backend environment template
+/docs
+  ARCHITECTURE.md          - Complete system architecture documentation
 ```
 
 ## Reliability Queue
