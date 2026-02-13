@@ -85,3 +85,20 @@ export async function getJson<T = any>(path: string): Promise<T> {
 
   return data;
 }
+
+/**
+ * Request speaker diarization for a meeting.
+ * Generates speaker-labeled transcript from the stored transcript (no re-transcription).
+ *
+ * @param meetingId - The meeting ID to diarize
+ * @returns Response with status and meeting_id
+ * @throws Error if the request fails
+ */
+export async function diarizeMeeting(meetingId: string): Promise<{
+  status: string;
+  meeting_id: string;
+  diarized: boolean;
+  cached?: boolean;
+}> {
+  return postJson(`/meetings/${meetingId}/diarize`, {});
+}

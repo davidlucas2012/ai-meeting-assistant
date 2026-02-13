@@ -54,6 +54,207 @@ async def health_check():
     return {"ok": True}
 
 
+@app.post("/meetings/{meeting_id}/diarize")
+async def diarize_meeting(meeting_id: str):
+    """
+    Generate speaker-labeled transcript from existing transcript.
+
+    This endpoint:
+    1. Fetches the stored transcript from the database
+    2. Uses GPT-4o-mini to infer speaker turns and extract speaker names
+    3. Stores structured JSON diarization with speaker labels
+    4. Does NOT re-transcribe audio (text-only processing)
+
+    Returns existing diarization if already generated.
+    """
+    print(f"Diarizing meeting {meeting_id}")
+
+    try:
+        # Step 1: Fetch meeting from database
+        meeting_result = supabase.table("meetings").select("*").eq("id", meeting_id).execute()
+
+        if not meeting_result.data or len(meeting_result.data) == 0:
+            raise HTTPException(status_code=404, detail="Meeting not found")
+
+        meeting = meeting_result.data[0]
+        transcript = meeting.get("transcript")
+        diarization_json = meeting.get("diarization_json")
+
+        # Step 2: Validate transcript exists
+        if not transcript or transcript.strip() == "":
+            raise HTTPException(
+                status_code=400,
+                detail="No transcript available for diarization. Meeting must be processed first."
+            )
+
+        # Step 3: Return existing diarization if available (avoid duplicate API calls)
+        if diarization_json:
+            print(f"Returning existing diarization for meeting {meeting_id}")
+            return {
+                "status": "success",
+                "meeting_id": meeting_id,
+                "diarized": True,
+                "cached": True,
+                "diarization": diarization_json
+            }
+
+        # Step 4: Generate structured speaker-labeled transcript with GPT
+        print("Generating speaker labels with GPT...")
+        diarization_start = time.time()
+
+        system_prompt = "You label meeting transcripts by speaker turns and extract speaker names when introduced."
+
+        user_prompt = f"""You will receive a raw meeting transcript.
+
+Task:
+Return JSON only with this schema:
+
+{{
+  "speakers": [
+    {{ "id": "speaker_1", "label": "Maria" }},
+    {{ "id": "speaker_2", "label": "Speaker 2" }}
+  ],
+  "segments": [
+    {{ "speaker_id": "speaker_1", "text": "..." }},
+    {{ "speaker_id": "speaker_2", "text": "..." }}
+  ]
+}}
+
+Rules:
+- Use stable speaker ids: speaker_1, speaker_2, speaker_3...
+- Infer speaker turns from the transcript text (no audio available).
+- If a speaker explicitly introduces themselves by name (e.g., "I'm Maria", "This is John"), set that speaker's label to that name and keep it consistent for their future turns.
+- If name is not known, label must be "Speaker N" (matching the id number).
+- Do NOT invent names.
+- Preserve the transcript wording as much as possible; minor punctuation cleanup is allowed but do not paraphrase.
+- Do NOT summarize.
+- Keep segments reasonably sized (combine consecutive turns by same speaker).
+- Return valid JSON only (no markdown, no extra text).
+
+Transcript:
+{transcript}"""
+
+        diarization_response = openai_client.chat.completions.create(
+            model="gpt-4o-mini",
+            temperature=0.2,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ]
+        )
+
+        response_text = diarization_response.choices[0].message.content.strip()
+        diarization_time = time.time() - diarization_start
+
+        print(f"Diarization complete in {diarization_time:.2f}s")
+
+        # Step 5: Parse JSON response
+        try:
+            # Remove markdown code blocks if present
+            if response_text.startswith("```"):
+                response_text = response_text.split("```")[1]
+                if response_text.startswith("json"):
+                    response_text = response_text[4:]
+                response_text = response_text.strip()
+
+            diarization_data = json.loads(response_text)
+
+            # Validate structure
+            if "speakers" not in diarization_data or "segments" not in diarization_data:
+                raise ValueError("Invalid diarization JSON structure")
+
+            # Generate human-readable transcript_diarized from structured data
+            speaker_map = {s["id"]: s["label"] for s in diarization_data["speakers"]}
+            formatted_lines = []
+            for segment in diarization_data["segments"]:
+                speaker_label = speaker_map.get(segment["speaker_id"], "Unknown Speaker")
+                formatted_lines.append(f"{speaker_label}: {segment['text']}")
+
+            transcript_diarized = "\n\n".join(formatted_lines)
+
+            # Step 6: Store structured diarization in database
+            update_result = supabase.table("meetings").update({
+                "diarization_json": diarization_data,
+                "transcript_diarized": transcript_diarized
+            }).eq("id", meeting_id).execute()
+
+            if not update_result.data:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Failed to save diarization to database"
+                )
+
+            print(f"Structured diarization saved for meeting {meeting_id}")
+
+            # Step 7: Return success response with structured data
+            return {
+                "status": "success",
+                "meeting_id": meeting_id,
+                "diarized": True,
+                "cached": False,
+                "diarization": diarization_data
+            }
+
+        except (json.JSONDecodeError, ValueError, KeyError) as parse_error:
+            print(f"Failed to parse structured diarization: {parse_error}")
+            print(f"Raw response: {response_text[:500]}")
+
+            # Fallback: Generate simple plain-text diarization
+            fallback_prompt = f"""Rewrite the following meeting transcript with inferred speaker labels.
+
+Rules:
+- Use generic labels: Speaker 1, Speaker 2, Speaker 3...
+- Preserve exact wording of transcript.
+- Do not summarize.
+- Do not change content.
+- Only reorganize by speaker turns.
+- Return plain text only.
+
+Transcript:
+{transcript}"""
+
+            fallback_response = openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                temperature=0.2,
+                messages=[
+                    {"role": "system", "content": "You are an assistant that labels meeting transcripts with speaker turns."},
+                    {"role": "user", "content": fallback_prompt}
+                ]
+            )
+
+            diarized_transcript = fallback_response.choices[0].message.content.strip()
+
+            # Store fallback plain-text version only
+            update_result = supabase.table("meetings").update({
+                "transcript_diarized": diarized_transcript
+            }).eq("id", meeting_id).execute()
+
+            if not update_result.data:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Failed to save fallback diarization to database"
+                )
+
+            print(f"Fallback diarization saved for meeting {meeting_id}")
+
+            return {
+                "status": "success",
+                "meeting_id": meeting_id,
+                "diarized": False,
+                "error": "json_parse_failed",
+                "fallback": True
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error diarizing meeting {meeting_id}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Diarization failed: {str(e)}"
+        )
+
+
 @app.post("/process-meeting")
 async def process_meeting(request: ProcessMeetingRequest):
     """

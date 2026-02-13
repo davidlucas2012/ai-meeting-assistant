@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View, ScrollView, ActivityIndicator } from 'react-native';
+import { StyleSheet, Text, View, ScrollView, ActivityIndicator, TouchableOpacity, Alert } from 'react-native';
 import { useLocalSearchParams, Stack } from 'expo-router';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import * as MeetingService from '@/services/meetingService';
@@ -8,6 +8,7 @@ import StatusBadge from '@/components/StatusBadge';
 import InlineError from '@/components/InlineError';
 import { supabase } from '@/lib/supabase';
 import type { RealtimeChannel } from '@supabase/supabase-js';
+import * as API from '@/lib/api';
 
 export default function MeetingDetailScreen() {
   const { id } = useLocalSearchParams();
@@ -16,6 +17,8 @@ export default function MeetingDetailScreen() {
   const [notFound, setNotFound] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [jobError, setJobError] = useState<string | null>(null);
+  const [diarizing, setDiarizing] = useState(false);
+  const [showDiarized, setShowDiarized] = useState(false);
   const channelRef = useRef<RealtimeChannel | null>(null);
 
   const loadMeeting = useCallback(async () => {
@@ -99,6 +102,29 @@ export default function MeetingDetailScreen() {
     };
   }, [id]);
 
+  const handleDiarize = async () => {
+    if (!meeting) return;
+
+    setDiarizing(true);
+    try {
+      console.log('Requesting speaker diarization...');
+      await API.diarizeMeeting(meeting.id);
+
+      // Refetch meeting to get updated transcript_diarized
+      const updatedMeeting = await MeetingService.getMeeting(meeting.id);
+      if (updatedMeeting) {
+        setMeeting(updatedMeeting);
+        setShowDiarized(true);
+      }
+    } catch (error) {
+      console.error('Diarization failed:', error);
+      const message = error instanceof Error ? error.message : 'Failed to generate speaker labels';
+      Alert.alert('Diarization Failed', message);
+    } finally {
+      setDiarizing(false);
+    }
+  };
+
   if (loading) {
     return (
       <>
@@ -141,8 +167,68 @@ export default function MeetingDetailScreen() {
         {meeting.status === 'ready' ? (
           <>
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Transcript</Text>
-              <Text style={styles.contentText}>{meeting.transcript || 'No transcript available'}</Text>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Transcript</Text>
+                {meeting.transcript && (
+                  <TouchableOpacity
+                    style={[
+                      styles.diarizeButton,
+                      diarizing && styles.diarizeButtonDisabled
+                    ]}
+                    onPress={
+                      meeting.diarization_json || meeting.transcript_diarized
+                        ? () => setShowDiarized(!showDiarized)
+                        : handleDiarize
+                    }
+                    disabled={diarizing}
+                  >
+                    {diarizing ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Text style={styles.diarizeButtonText}>
+                        {meeting.diarization_json || meeting.transcript_diarized
+                          ? (showDiarized ? 'Show Raw Transcript' : 'Show Speaker View')
+                          : 'Generate Speaker Labels'}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                )}
+              </View>
+              {showDiarized ? (
+                meeting.diarization_json ? (
+                  // Render structured diarization
+                  <View>
+                    {meeting.diarization_json.segments.map((segment, index) => {
+                      const speaker = meeting.diarization_json!.speakers.find(
+                        s => s.id === segment.speaker_id
+                      );
+                      const speakerLabel = speaker?.label || 'Unknown Speaker';
+
+                      return (
+                        <View key={index} style={styles.diarizedSegment}>
+                          <Text style={styles.speakerLabel}>{speakerLabel}</Text>
+                          <Text style={styles.segmentText}>{segment.text}</Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+                ) : meeting.transcript_diarized ? (
+                  // Fallback to legacy plain-text diarization
+                  <Text style={styles.contentText}>{meeting.transcript_diarized}</Text>
+                ) : (
+                  // No diarization available
+                  <Text style={styles.contentText}>
+                    {meeting.transcript || 'No transcript available'}
+                    {'\n\n'}
+                    <Text style={styles.placeholder}>No speaker labeling yet</Text>
+                  </Text>
+                )
+              ) : (
+                // Show raw transcript
+                <Text style={styles.contentText}>
+                  {meeting.transcript || 'No transcript available'}
+                </Text>
+              )}
             </View>
 
             <View style={styles.section}>
@@ -225,11 +311,47 @@ const styles = StyleSheet.create({
   section: {
     marginBottom: 30,
   },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
   sectionTitle: {
     fontSize: 20,
     fontWeight: '700',
-    marginBottom: 12,
     color: '#333',
+    flex: 1,
+  },
+  diarizeButton: {
+    backgroundColor: '#2196F3',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 6,
+    minWidth: 80,
+    alignItems: 'center',
+  },
+  diarizeButtonDisabled: {
+    backgroundColor: '#BDBDBD',
+  },
+  diarizeButtonText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  diarizedSegment: {
+    marginBottom: 16,
+  },
+  speakerLabel: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#2196F3',
+    marginBottom: 6,
+  },
+  segmentText: {
+    fontSize: 15,
+    color: '#333',
+    lineHeight: 22,
   },
   contentText: {
     fontSize: 15,

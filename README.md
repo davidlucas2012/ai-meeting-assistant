@@ -81,6 +81,30 @@ npx expo start --dev-client
 
 ---
 
+## Optional Speaker Diarization
+
+After a meeting is transcribed, you can optionally generate speaker labels to organize the transcript by speaker turns with intelligent name extraction.
+
+**How it works:**
+- Raw transcript is generated automatically during initial processing
+- Speaker labeling is available on-demand via a button in the meeting detail view
+- **Extracts speaker names** when introduced ("Hi, I'm Maria" → labeled as "Maria")
+- Uses generic labels (Speaker 1, Speaker 2) for unnamed speakers
+- No additional audio processing required (operates on stored transcript text only)
+- Uses GPT-4o-mini for text-only AI inference to keep costs low
+- Results are cached - subsequent views are instant
+- Structured diarization stored as JSON for future UI enhancements
+
+**Note:** Speaker identification is based on transcript text analysis, not biometric voice ID.
+
+**Usage:**
+1. Open a processed meeting (status: "ready")
+2. Tap "Generate Speaker Labels" button in the transcript section
+3. Wait a few seconds for AI processing
+4. Toggle between raw and speaker-labeled views
+
+---
+
 ## Architecture Decisions
 
 **Framework:** Expo SDK 54 with Expo Router for file-based routing and deep linking support. Enables seamless notification → meeting detail navigation.

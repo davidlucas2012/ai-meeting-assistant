@@ -22,6 +22,21 @@ const activeUploads = new Set<string>();
 
 export type MeetingStatus = 'recorded' | 'uploading' | 'upload_failed' | 'processing' | 'ready' | 'queued_failed';
 
+export interface DiarizationSpeaker {
+  id: string;
+  label: string;
+}
+
+export interface DiarizationSegment {
+  speaker_id: string;
+  text: string;
+}
+
+export interface Diarization {
+  speakers: DiarizationSpeaker[];
+  segments: DiarizationSegment[];
+}
+
 export interface Meeting {
   id: string;
   user_id: string;
@@ -32,6 +47,8 @@ export interface Meeting {
   transcript: string | null;
   summary: string | null;
   duration_millis: number | null;
+  transcript_diarized: string | null;
+  diarization_json: Diarization | null;
 }
 
 export interface MeetingListItem {

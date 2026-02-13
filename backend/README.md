@@ -49,6 +49,7 @@ API documentation: `http://localhost:8000/docs`
 
 - `GET /health` - Health check
 - `POST /process-meeting` - Process meeting audio with OpenAI Whisper + GPT-4o-mini
+- `POST /meetings/{meeting_id}/diarize` - Generate speaker-labeled transcript with name extraction
 
 ## AI Processing
 
@@ -69,6 +70,41 @@ The `/process-meeting` endpoint performs:
 - Comprehensive error handling with fallback to raw transcript
 - Detailed logging (download time, transcription time, analysis time)
 - Graceful degradation if GPT returns invalid JSON
+
+## Speaker Diarization
+
+The `/meetings/{meeting_id}/diarize` endpoint performs text-only speaker labeling:
+
+1. **Fetch** - Retrieves stored transcript from database
+2. **Cache Check** - Returns cached diarization if available (no duplicate processing)
+3. **Analysis** - Uses GPT-4o-mini to:
+   - Infer speaker turns from text
+   - Extract speaker names when introduced ("I'm John" → "John")
+   - Generate structured JSON with speaker labels and segments
+4. **Storage** - Saves both:
+   - `diarization_json` - Structured format for programmatic access
+   - `transcript_diarized` - Formatted text for easy display
+5. **Fallback** - If JSON parsing fails, generates plain-text version
+
+**Response Format:**
+```json
+{
+  "status": "success",
+  "meeting_id": "uuid",
+  "diarized": true,
+  "cached": false,
+  "diarization": {
+    "speakers": [
+      {"id": "speaker_1", "label": "Maria"},
+      {"id": "speaker_2", "label": "Speaker 2"}
+    ],
+    "segments": [
+      {"speaker_id": "speaker_1", "text": "Hi everyone, I'm Maria..."},
+      {"speaker_id": "speaker_2", "text": "Thanks for joining..."}
+    ]
+  }
+}
+```
 
 ## Dependencies
 

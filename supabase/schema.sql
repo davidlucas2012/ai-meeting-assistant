@@ -11,7 +11,15 @@ CREATE TABLE IF NOT EXISTS public.meetings (
   audio_url TEXT,
   transcript TEXT,
   summary TEXT,
-  duration_millis INTEGER
+  duration_millis INTEGER,
+  -- Optional speaker diarization: generated on-demand from stored transcript
+  -- Raw transcript stored in 'transcript', speaker-labeled version stored here
+  -- Diarization is text-only processing (no re-transcription of audio)
+  transcript_diarized TEXT,
+  -- Structured diarization: JSON format with speaker labels and segments
+  -- Schema: {speakers: [{id, label}], segments: [{speaker_id, text}]}
+  -- Extracts speaker names when introduced ("I'm Maria" -> label: "Maria")
+  diarization_json JSONB
 );
 
 -- Create index for faster user queries
