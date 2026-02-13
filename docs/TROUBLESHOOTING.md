@@ -2,7 +2,9 @@
 
 This guide covers common issues and their solutions.
 
-## Realtime Updates Not Working
+## Realtime Issues
+
+### Realtime Updates Not Working
 
 ### Symptoms
 
@@ -57,6 +59,27 @@ Realtime UPDATE received for meetings list: {...}
   - Status transitions (uploading → processing → ready)
   - Transcript and summary appear when processing completes
   - Diarization results update automatically
+
+### "CHANNEL_ERROR" When App Backgrounds (Expected Behavior)
+
+**Error:** `realtime subscription failed: CHANNEL_ERROR`
+
+**When it appears:** When you minimize the app or switch to another app
+
+**Why it happens:**
+- Supabase Realtime uses WebSocket connections
+- Android/iOS can kill WebSocket connections when apps go to background to save battery
+- The subscription detects the connection drop and logs `CHANNEL_ERROR`
+
+**Solution (Implemented):**
+The app now **automatically**:
+1. **Unsubscribes** when going to background (prevents connection errors)
+2. **Resubscribes** when returning to foreground (reconnects seamlessly)
+3. **Refreshes data** when coming back to foreground
+
+**This is harmless** - the error just indicates the connection was closed, and it will reconnect when you open the app again.
+
+**No action needed** - this is expected behavior and handled automatically.
 
 ## Push Notifications
 
