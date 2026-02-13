@@ -24,8 +24,7 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.anonymous.aimeetingtemp",
-      "googleServicesFile": "./google-services.json"
+      "package": "com.anonymous.aimeetingtemp"
     },
     "web": {
       "bundler": "metro",
